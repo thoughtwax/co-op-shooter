@@ -1,0 +1,1874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Co-op Shooter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #0a0a0a; cursor: crosshair; }
+  canvas { display: block; }
+
+  #debug-panel {
+    display: none;
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: 300px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    background: rgba(250, 250, 245, 0.95);
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #222;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+    scrollbar-width: thin;
+    scrollbar-color: #ccc transparent;
+  }
+  #debug-panel::-webkit-scrollbar { width: 4px; }
+  #debug-panel::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+  #debug-panel.visible { display: block; }
+
+  #debug-panel h3 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #888;
+    margin: 14px 0 8px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #eee;
+  }
+  #debug-panel h3:first-child { margin-top: 0; }
+
+  .debug-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+  .debug-row label {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: #555;
+    min-width: 80px;
+  }
+  .debug-row input[type="range"] {
+    flex: 1;
+    height: 3px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #ddd;
+    border-radius: 2px;
+    outline: none;
+  }
+  .debug-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    background: #333;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .debug-row .val {
+    font-size: 10px;
+    font-weight: 500;
+    color: #333;
+    min-width: 36px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #debug-toggle {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: rgba(255,255,255,0.15);
+    cursor: pointer;
+    z-index: 101;
+    user-select: none;
+    border-radius: 4px;
+    transition: color 0.2s;
+  }
+  #debug-toggle:hover { color: rgba(255,255,255,0.4); }
+
+
+  /* Controls Modal */
+  #controls-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  #controls-modal.visible {
+    display: flex;
+    opacity: 1;
+  }
+  #controls-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+  }
+  #controls-card {
+    position: relative;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    padding: 32px 40px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #ccc;
+    max-width: 820px;
+    width: 90vw;
+  }
+  #controls-card h2 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: #666;
+    margin: 0 0 24px 0;
+    text-align: center;
+  }
+
+  .keyboard {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 720px;
+  }
+  .kb-row {
+    display: flex;
+    gap: 3px;
+    align-items: flex-start;
+  }
+  .key {
+    position: relative;
+    width: 44px;
+    height: 40px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #555;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .key .fn {
+    font-size: 7px;
+    margin-top: 2px;
+    opacity: 0.9;
+  }
+
+  .key.p1 {
+    border-color: #00e5ff;
+    background: rgba(0, 229, 255, 0.08);
+    color: #00e5ff;
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.15), inset 0 0 8px rgba(0, 229, 255, 0.05);
+  }
+  .key.p2 {
+    border-color: #ff6644;
+    background: rgba(255, 102, 68, 0.08);
+    color: #ff6644;
+    box-shadow: 0 0 8px rgba(255, 102, 68, 0.15), inset 0 0 8px rgba(255, 102, 68, 0.05);
+  }
+  .key.shared {
+    border: 1.5px solid transparent;
+    background:
+      linear-gradient(rgba(180,100,255,0.08), rgba(180,100,255,0.08)) padding-box,
+      linear-gradient(#1a1a1a, #1a1a1a) padding-box,
+      linear-gradient(to right, #00e5ff, #8030d0, #ff6644) border-box;
+    color: #c0a0ff;
+    box-shadow:
+      0 0 8px rgba(180,100,255,0.15),
+      inset 0 0 8px rgba(180,100,255,0.05);
+  }
+
+  /* Arrow key cluster */
+  .arrow-cluster {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .arrow-top {
+    display: flex;
+    justify-content: center;
+  }
+  .arrow-bottom {
+    display: flex;
+    gap: 3px;
+  }
+  .key.arrow-half {
+    width: 38px;
+    height: 18px;
+    font-size: 9px;
+  }
+
+  .trackpad-area {
+    position: relative;
+    margin-top: 6px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+  }
+  .trackpad {
+    width: 285px;
+    height: 80px;
+    margin-left: 200px;
+    background: #161616;
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    border-radius: 8px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 38px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: #00e5ff;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="debug-toggle">?</div>
+<div id="debug-panel"></div>
+<div id="controls-modal">
+  <div id="controls-backdrop"></div>
+  <div id="controls-card">
+    <h2>Controls <span style="color:#444;font-weight:400">— Esc to close</span></h2>
+    <div class="keyboard">
+      <!-- Row 3: QWERTY — 14 keys, 13 gaps (Tab:77 + 12×44 + \:76 + 13×3 = 720) -->
+      <div class="kb-row">
+        <div class="key" style="width:77px">Tab</div>
+        <div class="key">Q</div>
+        <div class="key p1">W<span class="fn">up</span></div>
+        <div class="key">E</div>
+        <div class="key">R</div>
+        <div class="key">T</div>
+        <div class="key">Y</div>
+        <div class="key">U</div>
+        <div class="key p2">I<span class="fn">up</span></div>
+        <div class="key">O</div>
+        <div class="key">P</div>
+        <div class="key">[</div>
+        <div class="key">]</div>
+        <div class="key" style="width:76px">\</div>
+      </div>
+      <!-- Row 4: Home — 13 keys, 12 gaps (Caps:87 + 11×44 + Return:113 + 12×3 = 720) -->
+      <div class="kb-row">
+        <div class="key" style="width:87px">Caps</div>
+        <div class="key p1">A<span class="fn">left</span></div>
+        <div class="key p1">S<span class="fn">down</span></div>
+        <div class="key p1">D<span class="fn">right</span></div>
+        <div class="key">F</div>
+        <div class="key">G</div>
+        <div class="key">H</div>
+        <div class="key p2">J<span class="fn">left</span></div>
+        <div class="key p2">K<span class="fn">down</span></div>
+        <div class="key p2">L<span class="fn">right</span></div>
+        <div class="key">;</div>
+        <div class="key">'</div>
+        <div class="key" style="width:113px">Return</div>
+      </div>
+      <!-- Row 5: Shift — 12 keys, 11 gaps (LShift:111 + 10×44 + RShift:136 + 11×3 = 720) -->
+      <div class="kb-row">
+        <div class="key p1" style="width:111px">Shift<span class="fn">dash</span></div>
+        <div class="key">Z</div>
+        <div class="key">X</div>
+        <div class="key">C</div>
+        <div class="key">V</div>
+        <div class="key">B</div>
+        <div class="key">N</div>
+        <div class="key">M</div>
+        <div class="key">,</div>
+        <div class="key">.</div>
+        <div class="key">/</div>
+        <div class="key p2" style="width:136px">Shift<span class="fn">dash</span></div>
+      </div>
+      <!-- Row 6: Bottom — 7 mods + arrow cluster (Fn:38+Ctrl:44+LOpt:50+LCmd:56+Space:282+RCmd:56+ROpt:50 + 6×3 gaps + 3px to arrows + 3×38 arrows + 2×3 arrow gaps = 720) -->
+      <div class="kb-row">
+        <div class="key" style="width:38px;font-size:9px">Fn</div>
+        <div class="key" style="width:44px;font-size:9px">Ctrl</div>
+        <div class="key p1" style="width:50px;font-size:9px">Opt<span class="fn">shoot</span></div>
+        <div class="key" style="width:56px;font-size:9px">Cmd</div>
+        <div class="key shared" style="width:285px">Space<span class="fn">swap</span></div>
+        <div class="key" style="width:56px;font-size:9px">Cmd</div>
+        <div class="key p2" style="width:50px;font-size:9px">Opt<span class="fn">shoot</span></div>
+        <div class="arrow-cluster">
+          <div class="arrow-top">
+            <div class="key p2 arrow-half">&uarr;</div>
+          </div>
+          <div class="arrow-bottom">
+            <div class="key p2 arrow-half">&larr;</div>
+            <div class="key p2 arrow-half">&darr;</div>
+            <div class="key p2 arrow-half">&rarr;</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="trackpad-area">
+      <div class="trackpad" id="trackpad-label">P1 aim · trackpad</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG — all tweakable via debug panel
+// ============================================================
+const CFG = {
+  // Movement
+  acceleration: 8000,
+  maxSpeed: 420,
+  friction: 12,
+
+  // Dash
+  dashDistance: 160,
+  dashCooldown: 0.4,
+  dashIFrames: 0.12,
+  dashGhostDuration: 0.3,
+
+  // Shooting — Blue (sniper)
+  fireRate: 10,
+  bulletSpeed: 900,
+  bulletSize: 3,
+  bulletLifetime: 1.2,
+  bulletDamage: 10,
+  recoilStrength: 30,
+
+  // Shooting — Red (shotgun)
+  shotgunFireRate: 2.5,        // slower auto-fire
+  shotgunPellets: 7,           // pellets per blast
+  shotgunSpread: 0.5,          // half-angle in radians (~29°)
+  shotgunBulletSpeed: 650,     // slower than sniper
+  shotgunBulletSize: 3,
+  shotgunBulletLife: 0.45,     // shorter range
+  shotgunDamage: 6,            // per pellet
+  shotgunRecoil: 80,           // chunkier kick
+  shotgunSpeedJitter: 0.3,     // speed randomness (0–1)
+
+  // Visual
+  playerSize: 14,
+  losLineAlpha: 0.15,
+  gridSize: 80,
+  screenShakeDecay: 8,
+  particleCount: 6,
+
+  // Camera
+  cameraLerp: 0.08,
+  cameraZoomLerp: 0.04,
+  cameraMinZoom: 0.35,
+  cameraMaxZoom: 1.0,
+  cameraZoomPadding: 300,
+
+  // Bomb (secondary weapon — double-press-and-hold shoot)
+  doublePressWindow: 0.3,    // seconds between presses to trigger bomb
+  bombMaxCharge: 1.5,        // seconds to full charge
+  bombMinRadius: 40,         // explosion radius at min charge
+  bombMaxRadius: 160,        // explosion radius at max charge
+  bombDamage: 40,            // damage at max charge (scales linearly)
+  bombLobSpeed: 600,         // Blue's projectile travel speed (px/s)
+  bombArcHeight: 100,        // peak height of Blue's arc
+  bombChargeSlowdown: 0.4,   // movement multiplier while charging
+  bombRingWidth: 30,         // width of expanding damage ring
+  bombExpandSpeed: 500,      // how fast explosion ring expands (px/s)
+
+  // Arena
+  arenaWidth: 5000,
+  arenaHeight: 5000,
+};
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ============================================================
+// INPUT SYSTEM
+// ============================================================
+const keys = {};
+const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  // Prevent Option key from inserting special characters (Option+W = ∑, etc.)
+  if (e.code === 'AltLeft' || e.code === 'AltRight') {
+    e.preventDefault();
+  }
+  // Space = swap controls (edge-triggered, no auto-repeat)
+  if (e.code === 'Space' && !e.repeat) {
+    e.preventDefault();
+    swapControls();
+  }
+  if (e.code === 'Slash' && !e.shiftKey) return; // allow '?' through
+});
+
+window.addEventListener('keyup', e => {
+  keys[e.code] = false;
+});
+
+window.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+
+// Prevent context menu
+window.addEventListener('contextmenu', e => e.preventDefault());
+
+// ============================================================
+// MATH HELPERS
+// ============================================================
+const lerp = (a, b, t) => a + (b - a) * Math.min(1, t);
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const normalize = (x, y) => {
+  const len = Math.hypot(x, y);
+  return len > 0 ? { x: x / len, y: y / len } : { x: 0, y: 0 };
+};
+const rand = (min, max) => Math.random() * (max - min) + min;
+
+// ============================================================
+// CAMERA
+// ============================================================
+const camera = {
+  x: 0, y: 0,
+  zoom: 1,
+  targetX: 0, targetY: 0, targetZoom: 1,
+  shakeX: 0, shakeY: 0, shakeIntensity: 0,
+
+  update(dt, players) {
+    // Target: midpoint of players
+    let mx = 0, my = 0;
+    for (const p of players) { mx += p.x; my += p.y; }
+    mx /= players.length;
+    my /= players.length;
+    this.targetX = mx;
+    this.targetY = my;
+
+    // Zoom based on distance
+    const d = dist(players[0], players[1]);
+    const viewDiag = Math.hypot(canvas.width, canvas.height);
+    const idealZoom = clamp(
+      viewDiag / (d + CFG.cameraZoomPadding * 2),
+      CFG.cameraMinZoom,
+      CFG.cameraMaxZoom
+    );
+    this.targetZoom = idealZoom;
+
+    // Smooth follow
+    this.x = lerp(this.x, this.targetX, CFG.cameraLerp);
+    this.y = lerp(this.y, this.targetY, CFG.cameraLerp);
+    this.zoom = lerp(this.zoom, this.targetZoom, CFG.cameraZoomLerp);
+
+    // Screen shake decay
+    this.shakeIntensity *= Math.pow(0.001, dt * CFG.screenShakeDecay);
+    if (this.shakeIntensity < 0.1) this.shakeIntensity = 0;
+    this.shakeX = (Math.random() - 0.5) * this.shakeIntensity;
+    this.shakeY = (Math.random() - 0.5) * this.shakeIntensity;
+  },
+
+  shake(intensity) {
+    this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
+  },
+
+  applyTransform() {
+    ctx.save();
+    ctx.translate(canvas.width / 2 + this.shakeX, canvas.height / 2 + this.shakeY);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.translate(-this.x, -this.y);
+  },
+
+  restoreTransform() {
+    ctx.restore();
+  },
+
+  worldToScreen(wx, wy) {
+    return {
+      x: (wx - this.x) * this.zoom + canvas.width / 2,
+      y: (wy - this.y) * this.zoom + canvas.height / 2,
+    };
+  },
+
+  screenToWorld(sx, sy) {
+    return {
+      x: (sx - canvas.width / 2) / this.zoom + this.x,
+      y: (sy - canvas.height / 2) / this.zoom + this.y,
+    };
+  }
+};
+
+// ============================================================
+// PARTICLES
+// ============================================================
+const particles = [];
+
+function spawnParticles(x, y, color, count, speed, life, size) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = rand(speed * 0.3, speed);
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      life: rand(life * 0.5, life),
+      maxLife: life,
+      size: rand(size * 0.5, size),
+      color,
+    });
+  }
+}
+
+function spawnDirectionalParticles(x, y, dirX, dirY, color, count, speed, life, size) {
+  for (let i = 0; i < count; i++) {
+    const baseAngle = Math.atan2(dirY, dirX);
+    const angle = baseAngle + rand(-0.6, 0.6);
+    const spd = rand(speed * 0.4, speed);
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      life: rand(life * 0.4, life),
+      maxLife: life,
+      size: rand(size * 0.4, size),
+      color,
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= Math.pow(0.02, dt);
+    p.vy *= Math.pow(0.02, dt);
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const alpha = clamp(p.life / p.maxLife, 0, 1);
+    ctx.globalAlpha = alpha * 0.8;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// DASH GHOSTS
+// ============================================================
+const ghosts = [];
+
+function spawnGhost(x, y, aimAngle, color, size) {
+  ghosts.push({
+    x, y, aimAngle, color, size,
+    life: CFG.dashGhostDuration,
+    maxLife: CFG.dashGhostDuration,
+  });
+}
+
+function updateGhosts(dt) {
+  for (let i = ghosts.length - 1; i >= 0; i--) {
+    ghosts[i].life -= dt;
+    if (ghosts[i].life <= 0) ghosts.splice(i, 1);
+  }
+}
+
+function drawGhosts() {
+  for (const g of ghosts) {
+    const alpha = (g.life / g.maxLife) * 0.4;
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = g.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, g.size, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Direction tick
+    const tx = g.x + Math.cos(g.aimAngle) * g.size * 1.4;
+    const ty = g.y + Math.sin(g.aimAngle) * g.size * 1.4;
+    ctx.beginPath();
+    ctx.moveTo(g.x + Math.cos(g.aimAngle) * g.size, g.y + Math.sin(g.aimAngle) * g.size);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// BULLETS
+// ============================================================
+const bullets = [];
+
+function spawnBullet(x, y, dirX, dirY, color, owner, opts) {
+  const n = normalize(dirX, dirY);
+  const speed = (opts && opts.speed) || CFG.bulletSpeed;
+  bullets.push({
+    x, y,
+    vx: n.x * speed,
+    vy: n.y * speed,
+    life: (opts && opts.life) || CFG.bulletLifetime,
+    color,
+    owner,
+    size: (opts && opts.size) || CFG.bulletSize,
+    damage: (opts && opts.damage) || CFG.bulletDamage,
+  });
+}
+
+function spawnShotgunBlast(x, y, aimAngle, color, owner) {
+  const count = CFG.shotgunPellets;
+  const spread = CFG.shotgunSpread;
+  for (let i = 0; i < count; i++) {
+    // Distribute pellets across the spread with some jitter
+    const t = count === 1 ? 0 : (i / (count - 1)) * 2 - 1; // -1 to 1
+    const angle = aimAngle + t * spread + rand(-0.06, 0.06);
+    const speedMul = 1 - rand(0, CFG.shotgunSpeedJitter);
+    spawnBullet(
+      x + Math.cos(aimAngle) * (owner.size + 4),
+      y + Math.sin(aimAngle) * (owner.size + 4),
+      Math.cos(angle), Math.sin(angle),
+      color, owner,
+      {
+        speed: CFG.shotgunBulletSpeed * speedMul,
+        life: CFG.shotgunBulletLife,
+        size: CFG.shotgunBulletSize,
+        damage: CFG.shotgunDamage,
+      }
+    );
+  }
+}
+
+function updateBullets(dt) {
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt;
+
+    // Arena bounds
+    if (b.x < 0 || b.x > CFG.arenaWidth || b.y < 0 || b.y > CFG.arenaHeight) {
+      b.life = 0;
+    }
+
+    // Obstacle collision
+    for (const obs of obstacles) {
+      if (b.x > obs.x && b.x < obs.x + obs.w && b.y > obs.y && b.y < obs.y + obs.h) {
+        b.life = 0;
+        spawnParticles(b.x, b.y, '#ffffff', 3, 100, 0.2, 2);
+        break;
+      }
+    }
+
+    // Player collision (friendly fire)
+    for (const p of players) {
+      if (p === b.owner) continue;
+      if (p.iFrames > 0) continue;
+      if (dist(b, p) < p.size + b.size) {
+        b.life = 0;
+        p.takeDamage(b.damage, b.vx, b.vy);
+        spawnParticles(b.x, b.y, p.color, 8, 200, 0.3, 3);
+        camera.shake(4);
+        break;
+      }
+    }
+
+    if (b.life <= 0) bullets.splice(i, 1);
+  }
+}
+
+function drawBullets() {
+  for (const b of bullets) {
+    // Trail
+    const trailLen = 8;
+    const nx = b.vx / CFG.bulletSpeed;
+    const ny = b.vy / CFG.bulletSpeed;
+    ctx.globalAlpha = 0.3;
+    ctx.strokeStyle = b.color;
+    ctx.lineWidth = b.size * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - nx * trailLen, b.y - ny * trailLen);
+    ctx.stroke();
+
+    // Bullet body
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glow
+    ctx.globalAlpha = 0.15;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.size * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// BOMB PROJECTILES (Blue's lobbed bombs)
+// ============================================================
+const bombProjectiles = [];
+
+function spawnBombProjectile(startX, startY, targetX, targetY, chargeLevel, color, owner) {
+  const dx = targetX - startX;
+  const dy = targetY - startY;
+  const distance = Math.hypot(dx, dy);
+  const travelTime = Math.max(0.25, distance / CFG.bombLobSpeed);
+  bombProjectiles.push({
+    startX, startY, targetX, targetY,
+    x: startX, y: startY,
+    progress: 0,
+    travelTime,
+    chargeLevel,
+    color, owner,
+  });
+}
+
+function updateBombProjectiles(dt) {
+  for (let i = bombProjectiles.length - 1; i >= 0; i--) {
+    const b = bombProjectiles[i];
+    b.progress += dt / b.travelTime;
+
+    if (b.progress >= 1) {
+      // Arrived — detonate
+      spawnBombExplosion(b.targetX, b.targetY, b.chargeLevel, b.color, b.owner);
+      bombProjectiles.splice(i, 1);
+      continue;
+    }
+
+    // Interpolate position
+    const t = b.progress;
+    b.x = b.startX + (b.targetX - b.startX) * t;
+    b.y = b.startY + (b.targetY - b.startY) * t;
+  }
+}
+
+function drawBombProjectiles() {
+  for (const b of bombProjectiles) {
+    const t = b.progress;
+    // Parabolic arc height
+    const arcHeight = Math.sin(t * Math.PI) * CFG.bombArcHeight * b.chargeLevel;
+
+    // Shadow on ground
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.ellipse(b.x, b.y, 6 + arcHeight * 0.04, 3 + arcHeight * 0.02, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Projectile (elevated by arc)
+    const drawY = b.y - arcHeight;
+    const bombSize = 4 + b.chargeLevel * 3;
+
+    // Glow
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(b.x, drawY, bombSize * 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Body
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(b.x, drawY, bombSize, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bright core
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.arc(b.x, drawY, bombSize * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// BOMB EXPLOSIONS (expanding damage ring)
+// ============================================================
+const bombExplosions = [];
+
+function spawnBombExplosion(x, y, chargeLevel, color, owner) {
+  const maxR = CFG.bombMinRadius + (CFG.bombMaxRadius - CFG.bombMinRadius) * chargeLevel;
+  const life = maxR / CFG.bombExpandSpeed;
+  bombExplosions.push({
+    x, y,
+    currentRadius: 0,
+    maxRadius: maxR,
+    life,
+    maxLife: life,
+    damage: CFG.bombDamage * (0.3 + 0.7 * chargeLevel),
+    color, owner,
+    hasHit: new Set(),
+  });
+
+  // Impact effects
+  spawnParticles(x, y, color, 15 + Math.floor(chargeLevel * 15), 350, 0.5, 4);
+  spawnParticles(x, y, '#ffffff', 8, 200, 0.3, 2);
+  camera.shake(6 + chargeLevel * 10);
+}
+
+function updateBombExplosions(dt) {
+  for (let i = bombExplosions.length - 1; i >= 0; i--) {
+    const e = bombExplosions[i];
+    e.currentRadius += CFG.bombExpandSpeed * dt;
+    e.life -= dt;
+
+    if (e.life <= 0) {
+      bombExplosions.splice(i, 1);
+      continue;
+    }
+
+    // Damage players in the ring band
+    const innerR = Math.max(0, e.currentRadius - CFG.bombRingWidth);
+    const outerR = e.currentRadius;
+    for (const p of players) {
+      if (p === e.owner) continue;
+      if (!p.alive || p.iFrames > 0) continue;
+      if (e.hasHit.has(p)) continue;
+      const d = dist(e, p);
+      if (d >= innerR && d <= outerR + p.size) {
+        p.takeDamage(e.damage, p.x - e.x, p.y - e.y);
+        e.hasHit.add(p);
+        spawnParticles(p.x, p.y, p.color, 10, 250, 0.3, 3);
+        camera.shake(5);
+      }
+    }
+  }
+}
+
+function drawBombExplosions() {
+  for (const e of bombExplosions) {
+    const progress = 1 - (e.life / e.maxLife);
+    const alpha = (1 - progress) * 0.6;
+    const innerR = Math.max(0, e.currentRadius - CFG.bombRingWidth);
+    const outerR = e.currentRadius;
+
+    // Outer ring fill
+    ctx.globalAlpha = alpha * 0.3;
+    ctx.fillStyle = e.color;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, outerR, 0, Math.PI * 2);
+    ctx.arc(e.x, e.y, innerR, 0, Math.PI * 2, true);
+    ctx.fill();
+
+    // Outer ring stroke
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = e.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, outerR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner bright edge
+    ctx.globalAlpha = alpha * 0.5;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, innerR, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// OBSTACLES
+// ============================================================
+const obstacles = [];
+
+function generateObstacles() {
+  obstacles.length = 0;
+  const aw = CFG.arenaWidth;
+  const ah = CFG.arenaHeight;
+
+  // Scatter rectangular obstacles
+  const configs = [
+    // Near center — some cover
+    { x: aw*0.45, y: ah*0.42, w: 120, h: 20 },
+    { x: aw*0.52, y: ah*0.55, w: 20, h: 100 },
+    { x: aw*0.38, y: ah*0.58, w: 80, h: 20 },
+
+    // Quadrant obstacles
+    { x: aw*0.2, y: ah*0.2, w: 160, h: 20 },
+    { x: aw*0.2, y: ah*0.2, w: 20, h: 120 },
+    { x: aw*0.75, y: ah*0.25, w: 20, h: 160 },
+    { x: aw*0.8, y: ah*0.25, w: 100, h: 20 },
+    { x: aw*0.15, y: ah*0.75, w: 140, h: 20 },
+    { x: aw*0.7, y: ah*0.7, w: 20, h: 140 },
+    { x: aw*0.7, y: ah*0.82, w: 120, h: 20 },
+
+    // Scattered pillars
+    { x: aw*0.3, y: ah*0.4, w: 24, h: 24 },
+    { x: aw*0.6, y: ah*0.35, w: 24, h: 24 },
+    { x: aw*0.5, y: ah*0.7, w: 24, h: 24 },
+    { x: aw*0.35, y: ah*0.65, w: 24, h: 24 },
+    { x: aw*0.65, y: ah*0.5, w: 24, h: 24 },
+
+    // Outer structures
+    { x: aw*0.08, y: ah*0.45, w: 20, h: 200 },
+    { x: aw*0.9, y: ah*0.4, w: 20, h: 180 },
+    { x: aw*0.4, y: ah*0.08, w: 200, h: 20 },
+    { x: aw*0.45, y: ah*0.9, w: 180, h: 20 },
+  ];
+
+  for (const c of configs) {
+    obstacles.push({ x: c.x, y: c.y, w: c.w, h: c.h });
+  }
+}
+
+function drawObstacles() {
+  ctx.fillStyle = '#1a1a1a';
+  ctx.strokeStyle = '#2a2a2a';
+  ctx.lineWidth = 1;
+  for (const obs of obstacles) {
+    ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+    ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+  }
+}
+
+// ============================================================
+// PLAYER
+// ============================================================
+class Player {
+  constructor(x, y, color, colorDim, controls) {
+    this.x = x;
+    this.y = y;
+    this.vx = 0;
+    this.vy = 0;
+    this.color = color;
+    this.colorDim = colorDim;
+    this.controls = controls; // { up, down, left, right, shoot, dash, aimMode }
+    this.aimAngle = 0;
+    this.aimDirX = 1;
+    this.aimDirY = 0;
+    this.lastAimDirX = 1;
+    this.lastAimDirY = 0;
+    this.fireTimer = 0;
+    this.dashCooldownTimer = 0;
+    this.iFrames = 0;
+    this.hp = 100;
+    this.hitFlash = 0;
+    this.alive = true;
+
+    // Movement particles timer
+    this.moveParticleTimer = 0;
+
+    // Per-player body size and nubbin length
+    this.size = controls.bodySize || CFG.playerSize;
+    this.nubbinMul = controls.nubbinMul || 1.6;
+
+    // Slam charge state
+    this.chargeTime = 0;
+    this.isCharging = false;
+    this.slamCooldownTimer = 0;
+
+    // Bomb (double-press secondary weapon)
+    this.shootWasDown = false;      // previous frame's shoot state
+    this.lastShootReleaseTime = 0;  // timestamp of last shoot release
+    this.bombCharging = false;
+    this.bombChargeTime = 0;
+    this.bombTargetX = 0;           // Blue's aimed target
+    this.bombTargetY = 0;
+  }
+
+  getInput() {
+    let mx = 0, my = 0;
+    const c = this.controls;
+    if (keys[c.up]) my -= 1;
+    if (keys[c.down]) my += 1;
+    if (keys[c.left]) mx -= 1;
+    if (keys[c.right]) mx += 1;
+    return normalize(mx, my);
+  }
+
+  getAimDirection() {
+    const c = this.controls;
+
+    if (c.aimMode === 'mouse') {
+      const world = camera.screenToWorld(mouse.x, mouse.y);
+      const dx = world.x - this.x;
+      const dy = world.y - this.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 1) {
+        this.aimDirX = dx / len;
+        this.aimDirY = dy / len;
+        this.lastAimDirX = this.aimDirX;
+        this.lastAimDirY = this.aimDirY;
+      }
+    } else if (c.aimMode === 'keys') {
+      let ax = 0, ay = 0;
+      if (keys[c.aimUp]) ay -= 1;
+      if (keys[c.aimDown]) ay += 1;
+      if (keys[c.aimLeft]) ax -= 1;
+      if (keys[c.aimRight]) ax += 1;
+      if (ax !== 0 || ay !== 0) {
+        const n = normalize(ax, ay);
+        this.aimDirX = n.x;
+        this.aimDirY = n.y;
+        this.lastAimDirX = this.aimDirX;
+        this.lastAimDirY = this.aimDirY;
+      } else {
+        this.aimDirX = this.lastAimDirX;
+        this.aimDirY = this.lastAimDirY;
+      }
+    }
+
+    this.aimAngle = Math.atan2(this.aimDirY, this.aimDirX);
+  }
+
+  isShooting() {
+    return !!keys[this.controls.shootKey];
+  }
+
+  isDashing() {
+    return !!keys[this.controls.dashKey];
+  }
+
+  _fireBomb() {
+    const chargeLevel = Math.max(0.1, this.bombChargeTime / CFG.bombMaxCharge);
+
+    if (this.controls.aimMode === 'mouse') {
+      // Blue — lob projectile to cursor position
+      spawnBombProjectile(
+        this.x, this.y,
+        this.bombTargetX, this.bombTargetY,
+        chargeLevel, this.color, this
+      );
+      // Recoil away from target
+      const dx = this.bombTargetX - this.x;
+      const dy = this.bombTargetY - this.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 1) {
+        this.vx -= (dx / d) * 60 * chargeLevel;
+        this.vy -= (dy / d) * 60 * chargeLevel;
+      }
+    } else {
+      // Red — immediate 360° explosion at own position
+      spawnBombExplosion(this.x, this.y, chargeLevel, this.color, this);
+      // Push back slightly (ground pound recoil)
+      this.vy += 30 * chargeLevel;
+    }
+  }
+
+  update(dt) {
+    if (!this.alive) return;
+
+    // Timers
+    this.fireTimer = Math.max(0, this.fireTimer - dt);
+    this.dashCooldownTimer = Math.max(0, this.dashCooldownTimer - dt);
+    this.slamCooldownTimer = Math.max(0, this.slamCooldownTimer - dt);
+    this.iFrames = Math.max(0, this.iFrames - dt);
+    this.hitFlash = Math.max(0, this.hitFlash - dt);
+
+    // Input
+    const input = this.getInput();
+    this.getAimDirection();
+
+    // Movement physics
+    this.vx += input.x * CFG.acceleration * dt;
+    this.vy += input.y * CFG.acceleration * dt;
+
+    // Friction (only when no input in that axis)
+    if (input.x === 0 && input.y === 0) {
+      const frictionFactor = Math.pow(0.0001, dt * CFG.friction);
+      this.vx *= frictionFactor;
+      this.vy *= frictionFactor;
+    } else {
+      // Lighter friction while moving for more control
+      const moveFriction = Math.pow(0.001, dt * CFG.friction * 0.3);
+      this.vx *= moveFriction;
+      this.vy *= moveFriction;
+    }
+
+    // Speed cap (reduced while charging bomb)
+    const effectiveMaxSpeed = this.bombCharging
+      ? CFG.maxSpeed * CFG.bombChargeSlowdown
+      : CFG.maxSpeed;
+    const speed = Math.hypot(this.vx, this.vy);
+    if (speed > effectiveMaxSpeed) {
+      this.vx = (this.vx / speed) * effectiveMaxSpeed;
+      this.vy = (this.vy / speed) * effectiveMaxSpeed;
+    }
+
+    // Snap to zero when very slow
+    if (Math.abs(this.vx) < 1) this.vx = 0;
+    if (Math.abs(this.vy) < 1) this.vy = 0;
+
+    // Apply velocity
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    // Obstacle collision
+    const r = this.size;
+    for (const obs of obstacles) {
+      // Find closest point on rectangle to player center
+      const cx = clamp(this.x, obs.x, obs.x + obs.w);
+      const cy = clamp(this.y, obs.y, obs.y + obs.h);
+      const dx = this.x - cx;
+      const dy = this.y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d < r && d > 0) {
+        const push = (r - d) / d;
+        this.x += dx * push;
+        this.y += dy * push;
+        // Kill velocity into the wall
+        if (Math.abs(dx) > Math.abs(dy)) {
+          this.vx *= -0.2;
+        } else {
+          this.vy *= -0.2;
+        }
+      } else if (d === 0) {
+        // Player center is inside obstacle — push out to nearest edge
+        const dists = [
+          { dir: 'left', val: this.x - obs.x },
+          { dir: 'right', val: obs.x + obs.w - this.x },
+          { dir: 'top', val: this.y - obs.y },
+          { dir: 'bottom', val: obs.y + obs.h - this.y },
+        ];
+        dists.sort((a, b) => a.val - b.val);
+        const nearest = dists[0];
+        switch (nearest.dir) {
+          case 'left': this.x = obs.x - r; this.vx = Math.min(0, this.vx); break;
+          case 'right': this.x = obs.x + obs.w + r; this.vx = Math.max(0, this.vx); break;
+          case 'top': this.y = obs.y - r; this.vy = Math.min(0, this.vy); break;
+          case 'bottom': this.y = obs.y + obs.h + r; this.vy = Math.max(0, this.vy); break;
+        }
+      }
+    }
+
+    // Arena bounds
+    this.x = clamp(this.x, r, CFG.arenaWidth - r);
+    this.y = clamp(this.y, r, CFG.arenaHeight - r);
+
+    // Dash
+    if (this.isDashing() && this.dashCooldownTimer <= 0) {
+      let dashDirX = input.x;
+      let dashDirY = input.y;
+      // If not moving, dash in aim direction
+      if (dashDirX === 0 && dashDirY === 0) {
+        dashDirX = this.aimDirX;
+        dashDirY = this.aimDirY;
+      }
+      const n = normalize(dashDirX, dashDirY);
+
+      // Ghost at origin
+      spawnGhost(this.x, this.y, this.aimAngle, this.color, this.size);
+
+      // Teleport
+      this.x += n.x * CFG.dashDistance;
+      this.y += n.y * CFG.dashDistance;
+
+      // Clamp to arena
+      this.x = clamp(this.x, r, CFG.arenaWidth - r);
+      this.y = clamp(this.y, r, CFG.arenaHeight - r);
+
+      // Set state
+      this.dashCooldownTimer = CFG.dashCooldown;
+      this.iFrames = CFG.dashIFrames;
+      this.vx = n.x * CFG.maxSpeed * 0.5;
+      this.vy = n.y * CFG.maxSpeed * 0.5;
+
+      // Effects
+      spawnParticles(this.x, this.y, this.color, 10, 250, 0.25, 3);
+      camera.shake(3);
+    }
+
+    // Shooting + bomb (double-press-and-hold for bomb)
+    const shootDown = this.isShooting();
+    const now = performance.now() / 1000;
+
+    // Detect press transition (false→true)
+    if (shootDown && !this.shootWasDown) {
+      const timeSinceRelease = now - this.lastShootReleaseTime;
+      if (timeSinceRelease < CFG.doublePressWindow && this.lastShootReleaseTime > 0) {
+        // Double-press detected — enter bomb mode
+        this.bombCharging = true;
+        this.bombChargeTime = 0;
+      }
+    }
+
+    // Detect release transition (true→false)
+    if (!shootDown && this.shootWasDown) {
+      if (this.bombCharging) {
+        // Release bomb
+        this._fireBomb();
+        this.bombCharging = false;
+        this.bombChargeTime = 0;
+      }
+      this.lastShootReleaseTime = now;
+    }
+
+    this.shootWasDown = shootDown;
+
+    if (this.bombCharging && shootDown) {
+      // Charge the bomb
+      this.bombChargeTime = Math.min(this.bombChargeTime + dt, CFG.bombMaxCharge);
+
+      // Update Blue's target position (tracks cursor while charging)
+      if (this.controls.aimMode === 'mouse') {
+        const world = camera.screenToWorld(mouse.x, mouse.y);
+        this.bombTargetX = world.x;
+        this.bombTargetY = world.y;
+      } else {
+        // Red — bomb emanates from self, no aiming needed
+        this.bombTargetX = this.x;
+        this.bombTargetY = this.y;
+      }
+    } else if (!this.bombCharging && shootDown && this.fireTimer <= 0) {
+      // Normal shooting — branched by weapon type
+      if (this.controls.weaponType === 'shotgun') {
+        // Red: directional shotgun blast
+        spawnShotgunBlast(this.x, this.y, this.aimAngle, this.color, this);
+        this.fireTimer = 1 / CFG.shotgunFireRate;
+
+        // Recoil
+        this.vx -= this.aimDirX * CFG.shotgunRecoil;
+        this.vy -= this.aimDirY * CFG.shotgunRecoil;
+
+        // Muzzle flash — wider spread
+        const bx = this.x + this.aimDirX * (this.size + 4);
+        const by = this.y + this.aimDirY * (this.size + 4);
+        spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 6, 180, 0.2, 3);
+        camera.shake(3);
+      } else {
+        // Blue: rapid single-line sniper
+        const bx = this.x + this.aimDirX * (this.size + 4);
+        const by = this.y + this.aimDirY * (this.size + 4);
+        spawnBullet(bx, by, this.aimDirX, this.aimDirY, this.color, this);
+        this.fireTimer = 1 / CFG.fireRate;
+
+        // Recoil
+        this.vx -= this.aimDirX * CFG.recoilStrength;
+        this.vy -= this.aimDirY * CFG.recoilStrength;
+
+        // Muzzle particles
+        spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 3, 150, 0.15, 2);
+        camera.shake(1.5);
+      }
+    }
+
+    // Movement particles
+    if (speed > CFG.maxSpeed * 0.5) {
+      this.moveParticleTimer -= dt;
+      if (this.moveParticleTimer <= 0) {
+        this.moveParticleTimer = 0.05;
+        spawnParticles(
+          this.x - (this.vx / speed) * this.size * 0.5,
+          this.y - (this.vy / speed) * this.size * 0.5,
+          this.colorDim, 1, 40, 0.3, 2
+        );
+      }
+    }
+  }
+
+  takeDamage(amount, bvx, bvy) {
+    this.hp -= amount;
+    this.hitFlash = 0.15;
+    // Knockback from bullet direction
+    const kbStr = 200;
+    const n = normalize(bvx, bvy);
+    this.vx += n.x * kbStr;
+    this.vy += n.y * kbStr;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.alive = false;
+      this.bombCharging = false;
+      this.bombChargeTime = 0;
+      spawnParticles(this.x, this.y, this.color, 20, 300, 0.5, 4);
+      camera.shake(10);
+    }
+  }
+
+  draw() {
+    if (!this.alive) return;
+    const size = this.size;
+
+    // I-frame blink
+    if (this.iFrames > 0 && Math.floor(this.iFrames * 30) % 2 === 0) {
+      ctx.globalAlpha = 0.3;
+    }
+
+    // Hit flash
+    const col = this.hitFlash > 0 ? '#ffffff' : this.color;
+
+    // Body (circle)
+    ctx.fillStyle = this.hitFlash > 0 ? 'rgba(255,255,255,0.3)' : `${this.color}11`;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner dot
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Direction indicator (nubbin)
+    const tipX = this.x + Math.cos(this.aimAngle) * size * this.nubbinMul;
+    const tipY = this.y + Math.sin(this.aimAngle) * size * this.nubbinMul;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(
+      this.x + Math.cos(this.aimAngle) * size,
+      this.y + Math.sin(this.aimAngle) * size
+    );
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    // Dash cooldown indicator (subtle ring)
+    if (this.dashCooldownTimer > 0) {
+      const progress = 1 - this.dashCooldownTimer / CFG.dashCooldown;
+      ctx.strokeStyle = this.colorDim;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, size + 5, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Bomb charge indicator
+    if (this.bombCharging) {
+      const chargeLevel = this.bombChargeTime / CFG.bombMaxCharge;
+      const blastR = CFG.bombMinRadius + (CFG.bombMaxRadius - CFG.bombMinRadius) * chargeLevel;
+
+      // Charge arc around player body (fills as charge builds)
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.6 + chargeLevel * 0.4;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, size + 10, -Math.PI / 2, -Math.PI / 2 + chargeLevel * Math.PI * 2);
+      ctx.stroke();
+
+      // Pulsing glow around player
+      const pulse = 0.3 + Math.sin(performance.now() / 80) * 0.15;
+      ctx.globalAlpha = pulse * chargeLevel;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, size + 14 + chargeLevel * 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (this.controls.aimMode === 'mouse') {
+        // Blue — crosshair at target position
+        const tx = this.bombTargetX;
+        const ty = this.bombTargetY;
+
+        // Targeting line from player to target
+        ctx.strokeStyle = this.color;
+        ctx.globalAlpha = 0.15 + chargeLevel * 0.15;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Blast radius preview at target
+        ctx.strokeStyle = this.color;
+        ctx.globalAlpha = 0.2 + chargeLevel * 0.3;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(tx, ty, blastR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Crosshair at target
+        const ch = 8 + chargeLevel * 4;
+        ctx.globalAlpha = 0.5 + chargeLevel * 0.5;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(tx - ch, ty); ctx.lineTo(tx + ch, ty);
+        ctx.moveTo(tx, ty - ch); ctx.lineTo(tx, ty + ch);
+        ctx.stroke();
+
+        // Center dot
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(tx, ty, 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Red — 360° blast preview around self
+        ctx.strokeStyle = this.color;
+        ctx.globalAlpha = 0.15 + chargeLevel * 0.2;
+        ctx.lineWidth = CFG.bombRingWidth * chargeLevel * 0.5;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, blastR * 0.6, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Outer edge preview
+        ctx.globalAlpha = 0.1 + chargeLevel * 0.25;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, blastR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    ctx.globalAlpha = 1;
+
+    // HP bar
+    if (this.hp < 100) {
+      const barW = size * 2.5;
+      const barH = 2;
+      const barY = this.y - size - 10;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(this.x - barW/2, barY, barW, barH);
+      ctx.fillStyle = this.color;
+      ctx.fillRect(this.x - barW/2, barY, barW * (this.hp / 100), barH);
+    }
+  }
+
+  drawLOS() {
+    if (!this.alive) return;
+    const c = this.controls;
+
+    if (c.aimMode === 'mouse') {
+      // Long line-of-sight to viewport edge
+      const len = Math.max(CFG.arenaWidth, CFG.arenaHeight);
+      ctx.strokeStyle = this.color;
+      ctx.globalAlpha = CFG.losLineAlpha;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 8]);
+      ctx.beginPath();
+      ctx.moveTo(
+        this.x + Math.cos(this.aimAngle) * this.size * this.nubbinMul,
+        this.y + Math.sin(this.aimAngle) * this.size * this.nubbinMul
+      );
+      ctx.lineTo(
+        this.x + Math.cos(this.aimAngle) * len,
+        this.y + Math.sin(this.aimAngle) * len
+      );
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    } else {
+      // Shorter directional indicator for 8-dir
+      const len = this.size * 4;
+      ctx.strokeStyle = this.color;
+      ctx.globalAlpha = CFG.losLineAlpha * 1.5;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(
+        this.x + Math.cos(this.aimAngle) * this.size * this.nubbinMul,
+        this.y + Math.sin(this.aimAngle) * this.size * this.nubbinMul
+      );
+      ctx.lineTo(
+        this.x + Math.cos(this.aimAngle) * (this.size * this.nubbinMul + len),
+        this.y + Math.sin(this.aimAngle) * (this.size * this.nubbinMul + len)
+      );
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// ============================================================
+// ARENA RENDERING
+// ============================================================
+function drawArena() {
+  const aw = CFG.arenaWidth;
+  const ah = CFG.arenaHeight;
+
+  // Background
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, aw, ah);
+
+  // Grid
+  ctx.strokeStyle = '#151515';
+  ctx.lineWidth = 1;
+  const gs = CFG.gridSize;
+  for (let x = 0; x <= aw; x += gs) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, ah);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= ah; y += gs) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(aw, y);
+    ctx.stroke();
+  }
+
+  // Border
+  ctx.strokeStyle = '#2a2a2a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, 0, aw, ah);
+
+  // Center cross
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(aw/2 - 30, ah/2);
+  ctx.lineTo(aw/2 + 30, ah/2);
+  ctx.moveTo(aw/2, ah/2 - 30);
+  ctx.lineTo(aw/2, ah/2 + 30);
+  ctx.stroke();
+}
+
+// ============================================================
+// PLAYERS SETUP
+// ============================================================
+const p1 = new Player(
+  CFG.arenaWidth / 2 - 100, CFG.arenaHeight / 2,
+  '#00e5ff', '#005f6b',
+  {
+    up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD',
+    aimMode: 'mouse',
+    weaponType: 'sniper',
+    shootKey: 'AltLeft',
+    dashKey: 'ShiftLeft',
+    bodySize: 11,    // Smaller circle — tall & thin sniper
+    nubbinMul: 2.5,  // Long direction indicator
+  }
+);
+
+const p2 = new Player(
+  CFG.arenaWidth / 2 + 100, CFG.arenaHeight / 2,
+  '#ff6644', '#6b2a1a',
+  {
+    up: 'KeyI', down: 'KeyK', left: 'KeyJ', right: 'KeyL',
+    aimMode: 'keys',
+    weaponType: 'shotgun',
+    aimUp: 'ArrowUp', aimDown: 'ArrowDown', aimLeft: 'ArrowLeft', aimRight: 'ArrowRight',
+    shootKey: 'AltRight',
+    dashKey: 'ShiftRight',
+    bodySize: 17,    // Bigger circle — squat tank
+    nubbinMul: 1.4,  // Short stubby indicator
+  }
+);
+
+const players = [p1, p2];
+
+// ============================================================
+// SWAP CONTROLS
+// ============================================================
+function swapControls() {
+  if (!p1.alive || !p2.alive) return;
+
+  // Swap controls
+  const temp = p1.controls;
+  p1.controls = p2.controls;
+  p2.controls = temp;
+
+  // Swap overlay color classes
+  const allKeys = document.querySelectorAll('.keyboard .key');
+  allKeys.forEach(k => {
+    const wasP1 = k.classList.contains('p1');
+    const wasP2 = k.classList.contains('p2');
+    if (wasP1) { k.classList.remove('p1'); k.classList.add('p2'); }
+    else if (wasP2) { k.classList.remove('p2'); k.classList.add('p1'); }
+  });
+
+  // Swap trackpad label
+  const tp = document.getElementById('trackpad-label');
+  const mouseOwner = p1.controls.aimMode === 'mouse' ? 'P1' : 'P2';
+  tp.textContent = mouseOwner + ' aim \u00B7 trackpad';
+  tp.style.color = mouseOwner === 'P1' ? '#00e5ff' : '#ff6644';
+
+  // --- Position swap with animation ---
+  const p1x = p1.x, p1y = p1.y, p2x = p2.x, p2y = p2.y;
+
+  // Ghosts at origin positions (larger, longer-lasting)
+  spawnGhost(p1x, p1y, p1.aimAngle, p1.color, p1.size * 1.3);
+  spawnGhost(p2x, p2y, p2.aimAngle, p2.color, p2.size * 1.3);
+
+  // Teleport to each other's positions
+  p1.x = p2x; p1.y = p2y;
+  p2.x = p1x; p2.y = p1y;
+
+  // Kill velocity on both (clean arrival)
+  p1.vx = 0; p1.vy = 0;
+  p2.vx = 0; p2.vy = 0;
+
+  // I-frames for both so they don't instantly die on arrival
+  p1.iFrames = 0.3;
+  p2.iFrames = 0.3;
+
+  // Particle trail along the swap path
+  const dx = p2x - p1x, dy = p2y - p1y;
+  const d = Math.hypot(dx, dy);
+  const steps = Math.min(Math.floor(d / 20), 30);
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const tx = p1x + dx * t;
+    const ty = p1y + dy * t;
+    // P1's trail (going toward p2's old position)
+    spawnParticles(tx, ty, p1.color, 2, 100, 0.3, 2.5);
+    // P2's trail (going toward p1's old position)
+    spawnParticles(tx, ty, p2.color, 2, 100, 0.3, 2.5);
+  }
+
+  // Burst at arrival points
+  spawnParticles(p1.x, p1.y, p1.color, 15, 300, 0.4, 3);
+  spawnParticles(p2.x, p2.y, p2.color, 15, 300, 0.4, 3);
+
+  // Big screen shake
+  camera.shake(6);
+}
+
+// Initialize camera position
+camera.x = (p1.x + p2.x) / 2;
+camera.y = (p1.y + p2.y) / 2;
+
+// ============================================================
+// RESPAWN
+// ============================================================
+function respawnDead() {
+  for (const p of players) {
+    if (!p.alive) {
+      p.alive = true;
+      p.hp = 100;
+      p.x = CFG.arenaWidth / 2 + (p === p1 ? -100 : 100);
+      p.y = CFG.arenaHeight / 2;
+      p.vx = 0;
+      p.vy = 0;
+      p.iFrames = 1.0;
+      p.bombCharging = false;
+      p.bombChargeTime = 0;
+      spawnParticles(p.x, p.y, p.color, 15, 200, 0.4, 3);
+    }
+  }
+}
+
+// ============================================================
+// DEBUG PANEL
+// ============================================================
+const debugPanel = document.getElementById('debug-panel');
+const debugToggle = document.getElementById('debug-toggle');
+let debugVisible = false;
+
+function toggleDebug() {
+  debugVisible = !debugVisible;
+  debugPanel.classList.toggle('visible', debugVisible);
+  debugToggle.style.display = debugVisible ? 'none' : 'flex';
+}
+
+debugToggle.addEventListener('click', toggleDebug);
+
+// Controls modal
+const controlsModal = document.getElementById('controls-modal');
+const controlsBackdrop = document.getElementById('controls-backdrop');
+let controlsVisible = false;
+
+function toggleControls() {
+  controlsVisible = !controlsVisible;
+  controlsModal.classList.toggle('visible', controlsVisible);
+}
+
+controlsBackdrop.addEventListener('click', () => {
+  if (controlsVisible) toggleControls();
+});
+
+window.addEventListener('keydown', e => {
+  if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+    toggleDebug();
+    e.preventDefault();
+  }
+  if (e.code === 'Escape') {
+    toggleControls();
+    e.preventDefault();
+  }
+  // Respawn on R
+  if (e.code === 'KeyR' && !e.metaKey && !e.ctrlKey) {
+    respawnDead();
+  }
+});
+
+function buildDebugPanel() {
+  const sections = {
+    'Movement': [
+      { key: 'acceleration', min: 1000, max: 20000, step: 500, label: 'Accel' },
+      { key: 'maxSpeed', min: 100, max: 1000, step: 10, label: 'Max Speed' },
+      { key: 'friction', min: 1, max: 30, step: 0.5, label: 'Friction' },
+    ],
+    'Dash': [
+      { key: 'dashDistance', min: 50, max: 400, step: 10, label: 'Distance' },
+      { key: 'dashCooldown', min: 0.1, max: 2, step: 0.05, label: 'Cooldown' },
+      { key: 'dashIFrames', min: 0, max: 0.5, step: 0.01, label: 'I-Frames' },
+      { key: 'dashGhostDuration', min: 0.1, max: 1, step: 0.05, label: 'Ghost Dur' },
+    ],
+    'Blue — Sniper': [
+      { key: 'fireRate', min: 1, max: 30, step: 1, label: 'Fire Rate' },
+      { key: 'bulletSpeed', min: 200, max: 2000, step: 50, label: 'Bullet Spd' },
+      { key: 'bulletSize', min: 1, max: 8, step: 0.5, label: 'Bullet Size' },
+      { key: 'bulletLifetime', min: 0.3, max: 3, step: 0.1, label: 'Bullet Life' },
+      { key: 'bulletDamage', min: 1, max: 30, step: 1, label: 'Damage' },
+      { key: 'recoilStrength', min: 0, max: 200, step: 5, label: 'Recoil' },
+    ],
+    'Red — Shotgun': [
+      { key: 'shotgunFireRate', min: 0.5, max: 8, step: 0.5, label: 'Fire Rate' },
+      { key: 'shotgunPellets', min: 2, max: 15, step: 1, label: 'Pellets' },
+      { key: 'shotgunSpread', min: 0.1, max: 1.2, step: 0.05, label: 'Spread' },
+      { key: 'shotgunBulletSpeed', min: 200, max: 1200, step: 50, label: 'Pellet Spd' },
+      { key: 'shotgunBulletLife', min: 0.1, max: 1.5, step: 0.05, label: 'Pellet Life' },
+      { key: 'shotgunDamage', min: 1, max: 20, step: 1, label: 'Per-Pellet Dmg' },
+      { key: 'shotgunRecoil', min: 0, max: 200, step: 5, label: 'Recoil' },
+      { key: 'shotgunSpeedJitter', min: 0, max: 0.5, step: 0.05, label: 'Speed Jitter' },
+    ],
+    'Bomb': [
+      { key: 'doublePressWindow', min: 0.1, max: 0.6, step: 0.05, label: 'Dbl-Press Window' },
+      { key: 'bombMaxCharge', min: 0.5, max: 3, step: 0.1, label: 'Max Charge' },
+      { key: 'bombMinRadius', min: 20, max: 100, step: 5, label: 'Min Radius' },
+      { key: 'bombMaxRadius', min: 80, max: 300, step: 10, label: 'Max Radius' },
+      { key: 'bombDamage', min: 10, max: 100, step: 5, label: 'Damage' },
+      { key: 'bombLobSpeed', min: 200, max: 1200, step: 50, label: 'Lob Speed' },
+      { key: 'bombArcHeight', min: 20, max: 250, step: 10, label: 'Arc Height' },
+      { key: 'bombExpandSpeed', min: 200, max: 1000, step: 50, label: 'Expand Speed' },
+      { key: 'bombChargeSlowdown', min: 0.1, max: 1, step: 0.05, label: 'Charge Slowdown' },
+    ],
+    'Visual': [
+      { key: 'playerSize', min: 6, max: 30, step: 1, label: 'Player Size' },
+      { key: 'losLineAlpha', min: 0, max: 0.5, step: 0.01, label: 'LOS Alpha' },
+      { key: 'screenShakeDecay', min: 1, max: 20, step: 0.5, label: 'Shake Decay' },
+    ],
+    'Camera': [
+      { key: 'cameraLerp', min: 0.01, max: 0.3, step: 0.01, label: 'Cam Lerp' },
+      { key: 'cameraZoomLerp', min: 0.01, max: 0.2, step: 0.01, label: 'Zoom Lerp' },
+      { key: 'cameraMinZoom', min: 0.15, max: 0.8, step: 0.05, label: 'Min Zoom' },
+      { key: 'cameraMaxZoom', min: 0.5, max: 2, step: 0.05, label: 'Max Zoom' },
+      { key: 'cameraZoomPadding', min: 50, max: 800, step: 25, label: 'Zoom Pad' },
+    ],
+  };
+
+  let html = '';
+  for (const [section, params] of Object.entries(sections)) {
+    html += `<h3>${section}</h3>`;
+    for (const p of params) {
+      const val = CFG[p.key];
+      const decimals = p.step < 1 ? (p.step < 0.1 ? 2 : 1) : 0;
+      html += `
+        <div class="debug-row">
+          <label>${p.label}</label>
+          <input type="range" min="${p.min}" max="${p.max}" step="${p.step}"
+            value="${val}" data-key="${p.key}" data-decimals="${decimals}">
+          <span class="val">${val.toFixed(decimals)}</span>
+        </div>`;
+    }
+  }
+
+  debugPanel.innerHTML = html;
+
+  // Bind sliders
+  debugPanel.querySelectorAll('input[type="range"]').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const key = slider.dataset.key;
+      const dec = parseInt(slider.dataset.decimals);
+      CFG[key] = parseFloat(slider.value);
+      slider.nextElementSibling.textContent = CFG[key].toFixed(dec);
+    });
+  });
+}
+
+buildDebugPanel();
+generateObstacles();
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+let lastTime = performance.now();
+
+function gameLoop(now) {
+  const rawDt = (now - lastTime) / 1000;
+  const dt = Math.min(rawDt, 0.05); // Cap delta to avoid spiral
+  lastTime = now;
+
+  // Update
+  for (const p of players) p.update(dt);
+  updateBullets(dt);
+  updateBombProjectiles(dt);
+  updateBombExplosions(dt);
+  updateParticles(dt);
+  updateGhosts(dt);
+  camera.update(dt, players);
+
+  // Render
+  ctx.fillStyle = '#050505';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  camera.applyTransform();
+
+  drawArena();
+  drawObstacles();
+  drawGhosts();
+  drawBombExplosions();
+  for (const p of players) p.drawLOS();
+  drawBullets();
+  drawBombProjectiles();
+  drawParticles();
+  for (const p of players) p.draw();
+
+  camera.restoreTransform();
+
+  // HUD - player labels
+  for (const [i, p] of players.entries()) {
+    if (!p.alive) {
+      const screen = camera.worldToScreen(p.x, p.y);
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = 0.5;
+      ctx.textAlign = 'center';
+      ctx.fillText('press R to respawn', screen.x, screen.y);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // FPS counter (debug only)
+  if (debugVisible) {
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${Math.round(1/rawDt)} fps`, 12, canvas.height - 12);
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
