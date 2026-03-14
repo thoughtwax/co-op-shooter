@@ -632,6 +632,24 @@ const camera = {
   shakeX: 0, shakeY: 0, shakeIntensity: 0,
   punchX: 0, punchY: 0,
 
+  // Level intro: start showing full arena, zoom in to players
+  introTimer: 0,       // counts up from 0
+  introDuration: 2.0,  // total intro time in seconds
+  introHold: 0.5,      // seconds to hold on full map before zooming in
+  introStartX: 0,      // arena center
+  introStartY: 0,
+  introStartZoom: 0.1, // zoom to fit full arena
+
+  startIntro() {
+    this.introTimer = 0;
+    this.introStartX = CFG.arenaWidth / 2;
+    this.introStartY = CFG.arenaHeight / 2;
+    // Zoom to fit the full arena in view
+    const zoomX = canvas.width / CFG.arenaWidth;
+    const zoomY = canvas.height / CFG.arenaHeight;
+    this.introStartZoom = Math.min(zoomX, zoomY) * 0.95; // slight margin
+  },
+
   update(dt, players) {
     // Target: midpoint of players
     let mx = 0, my = 0;
@@ -641,7 +659,7 @@ const camera = {
     this.targetX = mx;
     this.targetY = my;
 
-    // Zoom based on distance
+    // Zoom based on distance between players
     const d = dist(players[0], players[1]);
     const viewDiag = Math.hypot(canvas.width, canvas.height);
     const idealZoom = clamp(
@@ -651,10 +669,32 @@ const camera = {
     );
     this.targetZoom = idealZoom;
 
-    // Smooth follow
-    this.x = lerp(this.x, this.targetX, CFG.cameraLerp);
-    this.y = lerp(this.y, this.targetY, CFG.cameraLerp);
-    this.zoom = lerp(this.zoom, this.targetZoom, CFG.cameraZoomLerp);
+    // Level intro animation
+    if (this.introTimer < this.introDuration) {
+      this.introTimer += dt;
+      const t = clamp(this.introTimer / this.introDuration, 0, 1);
+
+      // Hold on full map, then ease into player view
+      const holdT = this.introHold / this.introDuration;
+      if (t < holdT) {
+        // Holding on full arena view
+        this.x = this.introStartX;
+        this.y = this.introStartY;
+        this.zoom = this.introStartZoom;
+      } else {
+        // Ease from arena view to player view
+        const easeT = clamp((t - holdT) / (1 - holdT), 0, 1);
+        const ease = easeT * easeT * (3 - 2 * easeT); // smoothstep
+        this.x = lerp(this.introStartX, this.targetX, ease);
+        this.y = lerp(this.introStartY, this.targetY, ease);
+        this.zoom = lerp(this.introStartZoom, this.targetZoom, ease);
+      }
+    } else {
+      // Normal camera: smooth follow
+      this.x = lerp(this.x, this.targetX, CFG.cameraLerp);
+      this.y = lerp(this.y, this.targetY, CFG.cameraLerp);
+      this.zoom = lerp(this.zoom, this.targetZoom, CFG.cameraZoomLerp);
+    }
 
     // Screen shake decay
     this.shakeIntensity *= Math.pow(0.001, dt * CFG.screenShakeDecay);
@@ -1311,17 +1351,8 @@ function loadLevel(index) {
   p2.vx = 0; p2.vy = 0; p2.hp = 100; p2.alive = true;
   p1.iFrames = 1.0; p2.iFrames = 1.0;
 
-  // Reset camera — snap to correct position AND zoom (no slow lerp)
-  camera.x = (p1.x + p2.x) / 2;
-  camera.y = (p1.y + p2.y) / 2;
-  const d = dist(p1, p2);
-  const viewDiag = Math.hypot(canvas.width, canvas.height);
-  camera.zoom = clamp(
-    viewDiag / (d + CFG.cameraZoomPadding * 2),
-    CFG.cameraMinZoom,
-    CFG.cameraMaxZoom
-  );
-  camera.targetZoom = camera.zoom;
+  // Start camera intro: show full arena, then zoom into players
+  camera.startIntro();
 }
 
 function fetchLevels() {
@@ -2319,11 +2350,11 @@ function swapControls() {
   camera.shake(6);
 }
 
-// Initialize camera position + zoom
-camera.x = (p1.x + p2.x) / 2;
-camera.y = (p1.y + p2.y) / 2;
-camera.zoom = CFG.cameraMinZoom;
-camera.targetZoom = CFG.cameraMinZoom;
+// Initialize camera — will be overridden by startIntro() on level load
+camera.x = CFG.arenaWidth / 2;
+camera.y = CFG.arenaHeight / 2;
+camera.zoom = 0.1;
+camera.targetZoom = 0.1;
 
 // ============================================================
 // RESPAWN
