@@ -1311,9 +1311,17 @@ function loadLevel(index) {
   p2.vx = 0; p2.vy = 0; p2.hp = 100; p2.alive = true;
   p1.iFrames = 1.0; p2.iFrames = 1.0;
 
-  // Reset camera to midpoint
+  // Reset camera — snap to correct position AND zoom (no slow lerp)
   camera.x = (p1.x + p2.x) / 2;
   camera.y = (p1.y + p2.y) / 2;
+  const d = dist(p1, p2);
+  const viewDiag = Math.hypot(canvas.width, canvas.height);
+  camera.zoom = clamp(
+    viewDiag / (d + CFG.cameraZoomPadding * 2),
+    CFG.cameraMinZoom,
+    CFG.cameraMaxZoom
+  );
+  camera.targetZoom = camera.zoom;
 }
 
 function fetchLevels() {
@@ -1661,9 +1669,16 @@ class Player {
 
         // Update target position (tracks cursor/self while charging)
         if (this.controls.aimMode === 'mouse') {
-          const world = camera.screenToWorld(mouse.x, mouse.y);
-          this.bombTargetX = world.x;
-          this.bombTargetY = world.y;
+          // If gamepad is active, aim-direction based targeting (no mouse)
+          const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
+          if (gp) {
+            this.bombTargetX = this.x + this.aimDirX * 300;
+            this.bombTargetY = this.y + this.aimDirY * 300;
+          } else {
+            const world = camera.screenToWorld(mouse.x, mouse.y);
+            this.bombTargetX = world.x;
+            this.bombTargetY = world.y;
+          }
         } else {
           this.bombTargetX = this.x;
           this.bombTargetY = this.y;
@@ -2304,9 +2319,11 @@ function swapControls() {
   camera.shake(6);
 }
 
-// Initialize camera position
+// Initialize camera position + zoom
 camera.x = (p1.x + p2.x) / 2;
 camera.y = (p1.y + p2.y) / 2;
+camera.zoom = CFG.cameraMinZoom;
+camera.targetZoom = CFG.cameraMinZoom;
 
 // ============================================================
 // RESPAWN
