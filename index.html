@@ -251,9 +251,99 @@
     text-transform: uppercase;
   }
 
+  /* Start Screen */
+  #start-screen {
+    position: fixed;
+    inset: 0;
+    background: #0a0a0a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  #start-screen.hidden { display: none; }
+  #start-screen h1 {
+    font-size: 24px;
+    font-weight: 300;
+    color: #fff;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    margin-bottom: 48px;
+  }
+  #start-screen .subtitle {
+    font-size: 10px;
+    color: #444;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 48px;
+    margin-top: -40px;
+  }
+  .mode-btn {
+    display: block;
+    background: none;
+    border: 1px solid #333;
+    color: #666;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    padding: 14px 56px;
+    margin: 6px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .mode-btn:hover {
+    border-color: #fff;
+    color: #fff;
+  }
+  .mode-btn:active {
+    background: #fff;
+    color: #0a0a0a;
+  }
+  .controls-hint {
+    margin-top: 56px;
+    color: #333;
+    font-size: 9px;
+    text-align: center;
+    line-height: 2;
+    letter-spacing: 1px;
+  }
+
+  /* 1P HUD */
+  #hud-1p {
+    display: none;
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    z-index: 50;
+    letter-spacing: 1px;
+  }
+  #hud-1p.visible { display: block; }
+  #hud-1p .kill-count {
+    font-size: 16px;
+    color: rgba(255,255,255,0.6);
+    font-weight: 500;
+  }
+
 </style>
 </head>
 <body>
+<div id="start-screen">
+  <h1>Co-op Shooter</h1>
+  <div class="subtitle">top-down arena</div>
+  <button class="mode-btn" data-mode="1p">1 Player</button>
+  <button class="mode-btn" data-mode="2p">2 Players</button>
+  <div class="controls-hint">
+    WASD move &middot; Mouse aim &middot; L-Option shoot &middot; L-Shift dash<br>
+    ? debug &middot; Esc controls
+  </div>
+</div>
+<div id="hud-1p"><span class="kill-count">0</span> kills</div>
 <canvas id="game"></canvas>
 <div id="debug-toggle">?</div>
 <div id="debug-panel"></div>
@@ -427,6 +517,16 @@ const CFG = {
   // Gamepad
   gamepadDeadzone: 0.15,
   gamepadAimDeadzone: 0.2,
+
+  // CPU AI
+  cpuReactionMin: 0.05,      // reaction delay at max difficulty
+  cpuReactionMax: 0.25,      // reaction delay at min difficulty
+  cpuAimJitterMin: 0.05,     // aim inaccuracy at max difficulty (radians)
+  cpuAimJitterMax: 0.5,      // aim inaccuracy at min difficulty
+  cpuDesiredRange: 350,      // preferred distance from player
+  cpuRespawnDelay: 3,        // seconds before CPU respawns
+  cpuSpecialChance: 0.003,   // per-frame chance of starting special (scaled by difficulty)
+  cpuDashDodgeChance: 0.5,   // chance of dodging a nearby bullet (scaled by difficulty)
 };
 
 // ============================================================
@@ -1272,12 +1372,26 @@ class Player {
     this.bombTargetX = 0;           // Blue's aimed target
     this.bombTargetY = 0;
     this.gamepadIndex = null;
+
+    this.slamCooldownTimer = 0;
+
+    // CPU control
+    this.cpuControlled = false;
+    this._cpuMoveX = 0;
+    this._cpuMoveY = 0;
+    this._cpuShoot = false;
+    this._cpuDash = false;
   }
 
   getInput() {
+    // CPU-controlled: use AI-set values
+    if (this.cpuControlled) {
+      return { x: this._cpuMoveX, y: this._cpuMoveY };
+    }
+
     const c = this.controls;
 
-    // Gamepad left stick / D-pad
+    // Gamepad left stick / D-pad — when connected, fully owns this player
     const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
     if (gp) {
       const sx = applyDeadzone(gp.axes[0], CFG.gamepadDeadzone);
@@ -1293,9 +1407,10 @@ class Player {
       if (gp.buttons[14] && gp.buttons[14].pressed) dx -= 1;
       if (gp.buttons[15] && gp.buttons[15].pressed) dx += 1;
       if (dx !== 0 || dy !== 0) return normalize(dx, dy);
+      return { x: 0, y: 0 }; // Gamepad connected but idle — do NOT fall through to keyboard
     }
 
-    // Keyboard
+    // Keyboard (only when no gamepad connected)
     let mx = 0, my = 0;
     if (keys[c.up]) my -= 1;
     if (keys[c.down]) my += 1;
@@ -1305,9 +1420,15 @@ class Player {
   }
 
   getAimDirection() {
+    // CPU-controlled: aim is set by CPUController
+    if (this.cpuControlled) {
+      this.aimAngle = Math.atan2(this.aimDirY, this.aimDirX);
+      return;
+    }
+
     const c = this.controls;
 
-    // Gamepad right stick (takes priority over keyboard/mouse)
+    // Gamepad right stick — when connected, fully owns aim
     const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
     if (gp) {
       const rx = applyDeadzone(gp.axes[2], CFG.gamepadAimDeadzone);
@@ -1318,9 +1439,13 @@ class Player {
         this.aimDirY = n.y;
         this.lastAimDirX = this.aimDirX;
         this.lastAimDirY = this.aimDirY;
-        this.aimAngle = Math.atan2(this.aimDirY, this.aimDirX);
-        return;
+      } else {
+        // Stick at rest — hold last aim direction
+        this.aimDirX = this.lastAimDirX;
+        this.aimDirY = this.lastAimDirY;
       }
+      this.aimAngle = Math.atan2(this.aimDirY, this.aimDirX);
+      return; // Do NOT fall through to mouse/keys
     }
 
     if (c.aimMode === 'mouse') {
@@ -1356,14 +1481,16 @@ class Player {
   }
 
   isShooting() {
+    if (this.cpuControlled) return this._cpuShoot;
     const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
-    if (gp && gp.buttons[7] && gp.buttons[7].pressed) return true;
+    if (gp) return !!(gp.buttons[7] && gp.buttons[7].pressed);
     return !!keys[this.controls.shootKey];
   }
 
   isDashing() {
+    if (this.cpuControlled) return this._cpuDash;
     const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
-    if (gp && gp.buttons[4] && gp.buttons[4].pressed) return true;
+    if (gp) return !!(gp.buttons[4] && gp.buttons[4].pressed);
     return !!keys[this.controls.dashKey];
   }
 
@@ -1516,9 +1643,8 @@ class Player {
       camera.shake(3);
     }
 
-    // Shooting — hold to charge special weapon
+    // Shooting — hold to charge special weapon, tap for normal fire
     const shootDown = this.isShooting();
-    const now = performance.now() / 1000;
 
     if (shootDown) {
       this.shootHoldTime += dt;
@@ -1545,15 +1671,10 @@ class Player {
       } else if (this.fireTimer <= 0) {
         // Normal shooting — branched by weapon type
         if (this.controls.weaponType === 'shotgun') {
-          // Red: directional shotgun blast
           spawnShotgunBlast(this.x, this.y, this.aimAngle, this.color, this);
           this.fireTimer = 1 / CFG.shotgunFireRate;
-
-          // Recoil
           this.vx -= this.aimDirX * CFG.shotgunRecoil;
           this.vy -= this.aimDirY * CFG.shotgunRecoil;
-
-          // Muzzle flash — wider spread
           const bx = this.x + this.aimDirX * (this.size + 4);
           const by = this.y + this.aimDirY * (this.size + 4);
           spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 6, 180, 0.2, 3);
@@ -1561,83 +1682,24 @@ class Player {
           camera.shake(3);
           camera.punch(this.aimDirX, this.aimDirY, CFG.cameraPunchShotgun);
         } else {
-          // Blue: rapid single-line sniper
           const bx = this.x + this.aimDirX * (this.size + 4);
           const by = this.y + this.aimDirY * (this.size + 4);
           spawnBullet(bx, by, this.aimDirX, this.aimDirY, this.color, this);
           this.fireTimer = 1 / CFG.fireRate;
-
-          // Recoil
           this.vx -= this.aimDirX * CFG.recoilStrength;
           this.vy -= this.aimDirY * CFG.recoilStrength;
-
-          // Muzzle particles
           spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 3, 150, 0.15, 2);
           spawnMuzzleFlash(bx, by, this.color, 6);
           camera.shake(1.5);
           camera.punch(this.aimDirX, this.aimDirY, CFG.cameraPunchSniper);
         }
       }
-      this.lastShootReleaseTime = now;
-    }
-
-    this.shootWasDown = shootDown;
-
-    if (this.bombCharging && shootDown) {
-      // Charge the bomb
-      this.bombChargeTime = Math.min(this.bombChargeTime + dt, CFG.bombMaxCharge);
-
-      // Update Blue's target position (tracks cursor/stick while charging)
-      if (this.controls.aimMode === 'mouse') {
-        const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
-        const hasStickAim = gp && Math.hypot(
-          applyDeadzone(gp.axes[2], CFG.gamepadAimDeadzone),
-          applyDeadzone(gp.axes[3], CFG.gamepadAimDeadzone)
-        ) > 0;
-        if (hasStickAim) {
-          // Gamepad: lob bomb in aim direction at fixed range
-          this.bombTargetX = this.x + this.aimDirX * 300;
-          this.bombTargetY = this.y + this.aimDirY * 300;
-        } else {
-          const world = camera.screenToWorld(mouse.x, mouse.y);
-          this.bombTargetX = world.x;
-          this.bombTargetY = world.y;
-        }
-      } else {
-        // Red — bomb emanates from self, no aiming needed
-        this.bombTargetX = this.x;
-        this.bombTargetY = this.y;
-      }
-    } else if (!this.bombCharging && shootDown && this.fireTimer <= 0) {
-      // Normal shooting — branched by weapon type
-      if (this.controls.weaponType === 'shotgun') {
-        // Red: directional shotgun blast
-        spawnShotgunBlast(this.x, this.y, this.aimAngle, this.color, this);
-        this.fireTimer = 1 / CFG.shotgunFireRate;
-
-        // Recoil
-        this.vx -= this.aimDirX * CFG.shotgunRecoil;
-        this.vy -= this.aimDirY * CFG.shotgunRecoil;
-
-        // Muzzle flash — wider spread
-        const bx = this.x + this.aimDirX * (this.size + 4);
-        const by = this.y + this.aimDirY * (this.size + 4);
-        spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 6, 180, 0.2, 3);
-        camera.shake(3);
-      } else {
-        // Blue: rapid single-line sniper
-        const bx = this.x + this.aimDirX * (this.size + 4);
-        const by = this.y + this.aimDirY * (this.size + 4);
-        spawnBullet(bx, by, this.aimDirX, this.aimDirY, this.color, this);
-        this.fireTimer = 1 / CFG.fireRate;
-
-        // Recoil
-        this.vx -= this.aimDirX * CFG.recoilStrength;
-        this.vy -= this.aimDirY * CFG.recoilStrength;
-
-        // Muzzle particles
-        spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 3, 150, 0.15, 2);
-        camera.shake(1.5);
+    } else {
+      // Shoot released — fire special if charged
+      if (this.chargingSpecial) {
+        this._fireSpecial();
+        this.chargingSpecial = false;
+        this.specialChargeTime = 0;
       }
       this.shootHoldTime = 0;
     }
@@ -1675,6 +1737,15 @@ class Player {
       hitstopTimer = CFG.hitstopHeavy;
       deathSlowmoTimer = CFG.deathSlowmoDuration;
       deathFlashTimer = 0.08;
+
+      // 1P mode: track kills and start CPU respawn timer
+      if (gameMode === '1p' && this.cpuControlled) {
+        killCount++;
+        killCountEl.textContent = killCount;
+        cpuRespawnTimer = CFG.cpuRespawnDelay;
+        cpuDeathX = this.x;
+        cpuDeathY = this.y;
+      }
     }
   }
 
@@ -1865,6 +1936,183 @@ class Player {
 }
 
 // ============================================================
+// CPU AI CONTROLLER
+// ============================================================
+class CPUController {
+  constructor(cpu, target) {
+    this.cpu = cpu;
+    this.target = target;
+    this.difficulty = 0.5; // 0–1, adapted based on player performance
+    this.blueKills = 0;
+
+    // Timers
+    this.reactionTimer = 0;
+    this.stuckTimer = 0;
+    this.lastX = 0;
+    this.lastY = 0;
+    this.escaping = false;
+    this.escapeAngle = 0;
+    this.escapeDuration = 0;
+    this.dashCooldown = 2;
+    this.specialCooldown = 5;
+    this.strafePhase = Math.random() * Math.PI * 2;
+
+    // Smoothed aim (avoids jitter)
+    this.targetAimAngle = 0;
+    this.currentAimAngle = 0;
+  }
+
+  updateDifficulty() {
+    // Kill ratio: more kills by Blue = harder CPU
+    const killFactor = Math.min(1, this.blueKills / 10);
+    // HP factor: Blue at full health = harder CPU
+    const hpFactor = this.target.hp / 100;
+    this.difficulty = clamp(killFactor * 0.6 + hpFactor * 0.4, 0.15, 0.95);
+  }
+
+  update(dt) {
+    const cpu = this.cpu;
+    const target = this.target;
+
+    if (!cpu.alive || !target.alive) {
+      cpu._cpuMoveX = 0;
+      cpu._cpuMoveY = 0;
+      cpu._cpuShoot = false;
+      cpu._cpuDash = false;
+      return;
+    }
+
+    this.updateDifficulty();
+
+    const dx = target.x - cpu.x;
+    const dy = target.y - cpu.y;
+    const distance = Math.hypot(dx, dy);
+    const baseAngle = Math.atan2(dy, dx);
+
+    // --- Aim ---
+    this.reactionTimer -= dt;
+    if (this.reactionTimer <= 0) {
+      const jitter = lerp(CFG.cpuAimJitterMax, CFG.cpuAimJitterMin, this.difficulty);
+      this.targetAimAngle = baseAngle + (Math.random() - 0.5) * jitter * 2;
+      this.reactionTimer = lerp(CFG.cpuReactionMax, CFG.cpuReactionMin, this.difficulty);
+    }
+    // Smoothly rotate toward target aim
+    let angleDiff = this.targetAimAngle - this.currentAimAngle;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    this.currentAimAngle += angleDiff * Math.min(1, dt * (8 + this.difficulty * 12));
+
+    cpu.aimDirX = Math.cos(this.currentAimAngle);
+    cpu.aimDirY = Math.sin(this.currentAimAngle);
+    cpu.lastAimDirX = cpu.aimDirX;
+    cpu.lastAimDirY = cpu.aimDirY;
+    cpu.aimAngle = this.currentAimAngle;
+
+    // --- Navigation ---
+    const moved = Math.hypot(cpu.x - this.lastX, cpu.y - this.lastY);
+    if (moved < 2) {
+      this.stuckTimer += dt;
+    } else {
+      this.stuckTimer = 0;
+      this.escaping = false;
+    }
+    this.lastX = cpu.x;
+    this.lastY = cpu.y;
+
+    // Unstick: pick perpendicular escape direction
+    if (this.stuckTimer > 0.5 && !this.escaping) {
+      this.escaping = true;
+      this.escapeAngle = baseAngle + (Math.random() > 0.5 ? Math.PI / 2 : -Math.PI / 2);
+      this.escapeDuration = 0.5 + Math.random() * 0.5;
+    }
+    if (this.escaping) {
+      this.escapeDuration -= dt;
+      if (this.escapeDuration <= 0) {
+        this.escaping = false;
+        this.stuckTimer = 0;
+      }
+    }
+
+    // Movement direction
+    let moveAngle;
+    if (this.escaping) {
+      moveAngle = this.escapeAngle;
+    } else {
+      const desiredRange = CFG.cpuDesiredRange + (1 - this.difficulty) * 150;
+      if (distance > desiredRange * 1.3) {
+        moveAngle = baseAngle; // approach
+      } else if (distance < desiredRange * 0.4) {
+        moveAngle = baseAngle + Math.PI; // retreat
+      } else {
+        // Strafe: circle the player
+        this.strafePhase += dt * (1.5 + this.difficulty);
+        moveAngle = baseAngle + Math.PI / 2 * Math.sin(this.strafePhase);
+      }
+    }
+
+    const n = normalize(Math.cos(moveAngle), Math.sin(moveAngle));
+    cpu._cpuMoveX = n.x;
+    cpu._cpuMoveY = n.y;
+
+    // --- Shooting ---
+    const aimError = Math.abs(baseAngle - this.currentAimAngle);
+    const normalizedError = Math.min(aimError, Math.PI * 2 - aimError);
+    const shootRange = 500; // shotgun effective range
+    cpu._cpuShoot = false;
+
+    if (distance < shootRange && normalizedError < 0.4 && !cpu.chargingSpecial) {
+      cpu._cpuShoot = true;
+    }
+
+    // --- Special weapon: charge 360° blast when Blue is close ---
+    this.specialCooldown -= dt;
+    if (!cpu.chargingSpecial && distance < CFG.bombMaxRadius * 1.5 &&
+        this.specialCooldown <= 0 && Math.random() < CFG.cpuSpecialChance * this.difficulty) {
+      // Force into special charge mode
+      cpu.shootHoldTime = CFG.specialChargeThreshold;
+      cpu.chargingSpecial = true;
+      cpu.specialChargeTime = 0;
+      cpu._cpuShoot = true;
+      this.specialCooldown = 8 + (1 - this.difficulty) * 6;
+    }
+
+    // While charging special, keep holding shoot; release after some charge time
+    if (cpu.chargingSpecial) {
+      cpu._cpuShoot = cpu.specialChargeTime < CFG.bombMaxCharge * (0.4 + this.difficulty * 0.4);
+    }
+
+    // --- Dash: dodge bullets or close distance ---
+    this.dashCooldown -= dt;
+    cpu._cpuDash = false;
+
+    if (this.dashCooldown <= 0) {
+      // Dodge incoming bullets
+      for (const b of bullets) {
+        if (b.owner === cpu) continue;
+        const toBullet = Math.hypot(b.x - cpu.x, b.y - cpu.y);
+        if (toBullet < 120) {
+          const bulletAngle = Math.atan2(b.vy, b.vx);
+          const angleToCpu = Math.atan2(cpu.y - b.y, cpu.x - b.x);
+          let diff = Math.abs(bulletAngle - angleToCpu);
+          if (diff > Math.PI) diff = Math.PI * 2 - diff;
+          if (diff < 0.5 && Math.random() < CFG.cpuDashDodgeChance * this.difficulty) {
+            cpu._cpuDash = true;
+            this.dashCooldown = 2 + (1 - this.difficulty) * 3;
+            break;
+          }
+        }
+      }
+
+      // Aggressive close-in dash
+      if (!cpu._cpuDash && distance > 600 && Math.random() < this.difficulty * 0.008) {
+        cpu._cpuDash = true;
+        this.dashCooldown = 3;
+      }
+    }
+  }
+}
+
+// ============================================================
 // ARENA RENDERING
 // ============================================================
 function drawArena() {
@@ -1949,9 +2197,50 @@ p1.gamepadIndex = 0;
 p2.gamepadIndex = 1;
 
 // ============================================================
+// GAME STATE
+// ============================================================
+let gameMode = 'menu'; // 'menu' | '1p' | '2p'
+let cpuController = null;
+let killCount = 0;
+let cpuRespawnTimer = 0;
+let cpuDeathX = 0;
+let cpuDeathY = 0;
+
+const startScreen = document.getElementById('start-screen');
+const hud1p = document.getElementById('hud-1p');
+const killCountEl = hud1p.querySelector('.kill-count');
+
+function startGame(mode) {
+  gameMode = mode;
+  startScreen.classList.add('hidden');
+  killCount = 0;
+  cpuRespawnTimer = 0;
+
+  if (mode === '1p') {
+    p2.cpuControlled = true;
+    cpuController = new CPUController(p2, p1);
+    hud1p.classList.add('visible');
+    killCountEl.textContent = '0';
+  } else {
+    p2.cpuControlled = false;
+    cpuController = null;
+    hud1p.classList.remove('visible');
+  }
+
+  // Reset players to spawn positions
+  fetchLevels();
+}
+
+// Start screen buttons
+startScreen.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => startGame(btn.dataset.mode));
+});
+
+// ============================================================
 // SWAP CONTROLS
 // ============================================================
 function swapControls() {
+  if (gameMode === '1p') return; // No swap in 1P mode
   if (!p1.alive || !p2.alive) return;
 
   // Swap controls
@@ -2024,10 +2313,12 @@ camera.y = (p1.y + p2.y) / 2;
 // ============================================================
 function respawnDead() {
   for (const p of players) {
+    // In 1P mode, CPU respawns on its own timer — skip manual respawn
+    if (gameMode === '1p' && p.cpuControlled) continue;
+
     if (!p.alive) {
       p.alive = true;
       p.hp = 100;
-      // Use level spawn points if available, otherwise center of arena
       const lv = levelData && levelData.levels && levelData.levels[currentLevel];
       const spawnKey = p === p1 ? 'p1' : 'p2';
       if (lv && lv.spawns && lv.spawns[spawnKey]) {
@@ -2158,6 +2449,16 @@ function buildDebugPanel() {
       { key: 'deathSlowmo', min: 0.05, max: 1, step: 0.05, label: 'Death Slowmo' },
       { key: 'deathSlowmoDuration', min: 0.05, max: 0.5, step: 0.05, label: 'Slowmo Dur' },
     ],
+    'CPU AI': [
+      { key: 'cpuReactionMin', min: 0.01, max: 0.2, step: 0.01, label: 'React Fast' },
+      { key: 'cpuReactionMax', min: 0.1, max: 0.5, step: 0.01, label: 'React Slow' },
+      { key: 'cpuAimJitterMin', min: 0, max: 0.3, step: 0.01, label: 'Aim Best' },
+      { key: 'cpuAimJitterMax', min: 0.1, max: 1, step: 0.05, label: 'Aim Worst' },
+      { key: 'cpuDesiredRange', min: 100, max: 600, step: 25, label: 'Range' },
+      { key: 'cpuRespawnDelay', min: 1, max: 8, step: 0.5, label: 'Respawn Delay' },
+      { key: 'cpuSpecialChance', min: 0, max: 0.01, step: 0.001, label: 'Special Chance' },
+      { key: 'cpuDashDodgeChance', min: 0, max: 1, step: 0.05, label: 'Dodge Chance' },
+    ],
   };
 
   let html = '';
@@ -2227,6 +2528,41 @@ function gameLoop(now) {
     if (gamepadButtonJustPressed(gi, 9)) respawnDead();
   }
 
+  // CPU AI update (before player update so inputs are set)
+  if (gameMode === '1p' && cpuController) {
+    cpuController.update(dt);
+
+    // CPU auto-respawn timer
+    if (!p2.alive && cpuRespawnTimer > 0) {
+      cpuRespawnTimer -= rawDt;
+      if (cpuRespawnTimer <= 0) {
+        // Respawn CPU
+        p2.alive = true;
+        p2.hp = 100;
+        const lv = levelData && levelData.levels && levelData.levels[currentLevel];
+        if (lv && lv.spawns && lv.spawns.p2) {
+          p2.x = lv.spawns.p2.x;
+          p2.y = lv.spawns.p2.y;
+        } else {
+          p2.x = CFG.arenaWidth / 2 + 100;
+          p2.y = CFG.arenaHeight / 2;
+        }
+        p2.vx = 0; p2.vy = 0;
+        p2.iFrames = 1.0;
+        p2.chargingSpecial = false;
+        p2.specialChargeTime = 0;
+        spawnParticles(p2.x, p2.y, p2.color, 15, 200, 0.4, 3);
+        // Scale difficulty after respawn
+        cpuController.updateDifficulty();
+      }
+    }
+  }
+
+  // Skip game updates while on menu
+  if (gameMode === 'menu') {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
 
   // Update
   for (const p of players) p.update(dt);
@@ -2294,7 +2630,16 @@ function gameLoop(now) {
       ctx.fillStyle = p.color;
       ctx.globalAlpha = 0.5;
       ctx.textAlign = 'center';
-      ctx.fillText('press R to respawn', screen.x, screen.y);
+
+      if (gameMode === '1p' && p.cpuControlled) {
+        // CPU respawn countdown
+        if (cpuRespawnTimer > 0) {
+          const deathScreen = camera.worldToScreen(cpuDeathX, cpuDeathY);
+          ctx.fillText(Math.ceil(cpuRespawnTimer).toString(), deathScreen.x, deathScreen.y);
+        }
+      } else {
+        ctx.fillText('press R to respawn', screen.x, screen.y);
+      }
       ctx.globalAlpha = 1;
     }
   }
