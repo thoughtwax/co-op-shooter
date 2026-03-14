@@ -16,6 +16,7 @@ Everything lives in a single `index.html` with inline `<style>` and `<script>`. 
 
 - **CFG** — Global config object. Every gameplay parameter lives here and is exposed via the debug panel. When adding new mechanics, add their tuning parameters to CFG.
 - **Input System** — Tracks `keys` map and `mouse` position. Prevents default on Alt/Option keys to suppress special character insertion. Space is edge-triggered (not held) for the swap mechanic.
+- **Gamepad System** — Polls `navigator.getGamepads()` each frame. Provides deadzone handling, edge-triggered button detection via `prevGamepadButtons`, and helper functions (`getGamepad`, `applyDeadzone`, `gamepadButtonJustPressed`). `gamepadIndex` lives on the Player object (not in `controls`) so gamepads stay with the player body during control swaps.
 - **Camera** — Follows midpoint between players, zooms out based on inter-player distance. Provides `worldToScreen`/`screenToWorld` coordinate conversion and screen shake. All rendering between `applyTransform()`/`restoreTransform()` is in world space.
 - **Player** (class) — Movement, aiming, shooting, dashing, collision. Controls are config-driven via a `controls` object that specifies key bindings and aim mode (`'mouse'` vs `'keys'`). Controls can be swapped between players at runtime.
 - **Swap System** — `swapControls()` swaps control configs and positions between players. Leaves ghost afterimages, spawns particle trails between origin/destination, grants i-frames, and updates the keyboard overlay colors dynamically.
@@ -33,6 +34,20 @@ Everything lives in a single `index.html` with inline `<style>` and `<script>`. 
 | Shoot | Left Option | Right Option |
 | Dash | Left Shift | Right Shift |
 | Swap | Space (shared) | Space (shared) |
+
+### Gamepad (Xbox / Standard layout)
+
+| Input | Action |
+|---|---|
+| Left Stick | Move (analog) |
+| D-Pad | Move (digital) |
+| Right Stick | Aim (analog 360°) |
+| RT (R2) | Shoot |
+| LB (L1) | Dash |
+| A (Cross) | Swap |
+| Start | Respawn |
+
+Gamepad 0 → P1, Gamepad 1 → P2. Both players get full analog aim via right stick. Keyboard input still works as fallback when gamepad stick/d-pad is idle.
 
 `Space` swaps controls AND positions between players (either player can trigger it unilaterally). `R` respawns dead players. `?` toggles debug panel. `Escape` toggles keyboard controls diagram.
 
