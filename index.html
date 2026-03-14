@@ -311,6 +311,33 @@
     letter-spacing: 1px;
   }
 
+  /* Level select dropdown */
+  #level-select {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    z-index: 50;
+    display: none;
+  }
+  #level-select.visible { display: block; }
+  #level-select select {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(255,255,255,0.5);
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  #level-select select:hover {
+    border-color: rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.7);
+  }
+
   /* 1P HUD */
   #hud-1p {
     display: none;
@@ -344,6 +371,7 @@
   </div>
 </div>
 <div id="hud-1p"><span class="kill-count">0</span> kills</div>
+<div id="level-select"><select id="level-dropdown"></select></div>
 <canvas id="game"></canvas>
 <div id="debug-toggle">?</div>
 <div id="debug-panel"></div>
@@ -648,9 +676,13 @@ const camera = {
     const zoomX = canvas.width / CFG.arenaWidth;
     const zoomY = canvas.height / CFG.arenaHeight;
     this.introStartZoom = Math.min(zoomX, zoomY) * 0.95; // slight margin
+    // Snap camera immediately to arena overview
+    this.x = this.introStartX;
+    this.y = this.introStartY;
+    this.zoom = this.introStartZoom;
   },
 
-  update(dt, players) {
+  update(dt, rawDt, players) {
     // Target: midpoint of players
     let mx = 0, my = 0;
     for (const p of players) { mx += p.x; my += p.y; }
@@ -669,9 +701,9 @@ const camera = {
     );
     this.targetZoom = idealZoom;
 
-    // Level intro animation
+    // Level intro animation (uses rawDt — real time, unaffected by hitstop)
     if (this.introTimer < this.introDuration) {
-      this.introTimer += dt;
+      this.introTimer += rawDt;
       const t = clamp(this.introTimer / this.introDuration, 0, 1);
 
       // Hold on full map, then ease into player view
@@ -1293,7 +1325,7 @@ function drawBombExplosions() {
 // OBSTACLES + LEVEL LOADING
 // ============================================================
 const obstacles = [];
-let levelData = {"levels":[{"name":"Level 1","arenaWidth":5000,"arenaHeight":5000,"blockSize":80,"spawns":{"p1":{"x":1160,"y":4520},"p2":{"x":3880,"y":520}},"obstacles":[{"x":2320,"y":80,"w":160,"h":80},{"x":2320,"y":160,"w":80,"h":160},{"x":2400,"y":240,"w":80,"h":240},{"x":1360,"y":320,"w":80,"h":480},{"x":80,"y":400,"w":240,"h":80},{"x":2480,"y":400,"w":480,"h":80},{"x":2880,"y":480,"w":480,"h":80},{"x":3680,"y":480,"w":80,"h":240},{"x":3280,"y":560,"w":400,"h":80},{"x":1280,"y":720,"w":80,"h":80},{"x":3760,"y":720,"w":80,"h":80},{"x":3840,"y":800,"w":320,"h":80},{"x":560,"y":960,"w":240,"h":80},{"x":4000,"y":1040,"w":80,"h":320},{"x":4480,"y":1120,"w":80,"h":800},{"x":2480,"y":1280,"w":240,"h":80},{"x":4080,"y":1280,"w":80,"h":160},{"x":4160,"y":1360,"w":240,"h":80},{"x":4320,"y":1440,"w":160,"h":80},{"x":4560,"y":1840,"w":80,"h":160},{"x":1040,"y":1920,"w":80,"h":240},{"x":4640,"y":1920,"w":240,"h":80},{"x":4800,"y":2000,"w":160,"h":80},{"x":1920,"y":2160,"w":240,"h":80},{"x":320,"y":2320,"w":80,"h":320},{"x":4000,"y":2480,"w":240,"h":80},{"x":3120,"y":2640,"w":80,"h":320},{"x":1520,"y":2960,"w":160,"h":80},{"x":2320,"y":3360,"w":240,"h":80},{"x":960,"y":3520,"w":80,"h":160},{"x":480,"y":3600,"w":480,"h":80},{"x":2720,"y":3920,"w":320,"h":80},{"x":880,"y":4240,"w":560,"h":160},{"x":880,"y":4400,"w":80,"h":160},{"x":1360,"y":4400,"w":80,"h":160},{"x":4160,"y":4480,"w":160,"h":80},{"x":80,"y":4560,"w":320,"h":80},{"x":2000,"y":4560,"w":240,"h":80},{"x":4160,"y":4560,"w":80,"h":160},{"x":320,"y":4640,"w":80,"h":160},{"x":720,"y":4640,"w":80,"h":80},{"x":1520,"y":4640,"w":80,"h":80},{"x":1920,"y":4640,"w":80,"h":160},{"x":4080,"y":4640,"w":80,"h":80},{"x":640,"y":4720,"w":80,"h":160},{"x":1600,"y":4720,"w":80,"h":160},{"x":480,"y":4800,"w":160,"h":80},{"x":1680,"y":4800,"w":160,"h":80}]},{"name":"Level 2","arenaWidth":5000,"arenaHeight":5000,"blockSize":80,"spawns":{"p1":{"x":2400,"y":2500},"p2":{"x":2600,"y":2500}},"obstacles":[]}]};   // Embedded level data
+let levelData = {"levels":[{"name":"Level 1","arenaWidth":5000,"arenaHeight":5000,"blockSize":80,"spawns":{"p1":{"x":1800,"y":3880},"p2":{"x":4200,"y":200}},"obstacles":[{"x":3040,"y":0,"w":80,"h":1440},{"x":4080,"y":0,"w":80,"h":320},{"x":4640,"y":0,"w":80,"h":160},{"x":4480,"y":80,"w":80,"h":240},{"x":4800,"y":80,"w":80,"h":240},{"x":3200,"y":160,"w":80,"h":640},{"x":3520,"y":160,"w":80,"h":240},{"x":4160,"y":240,"w":320,"h":80},{"x":4560,"y":240,"w":240,"h":80},{"x":3280,"y":320,"w":240,"h":80},{"x":4640,"y":320,"w":80,"h":240},{"x":4720,"y":480,"w":160,"h":80},{"x":4800,"y":560,"w":80,"h":240},{"x":3920,"y":640,"w":240,"h":80},{"x":4240,"y":640,"w":560,"h":80},{"x":3120,"y":720,"w":80,"h":80},{"x":3920,"y":720,"w":80,"h":320},{"x":4080,"y":720,"w":80,"h":80},{"x":4240,"y":720,"w":80,"h":160},{"x":4720,"y":720,"w":80,"h":160},{"x":4480,"y":800,"w":80,"h":240},{"x":3440,"y":960,"w":480,"h":80},{"x":4000,"y":960,"w":480,"h":80},{"x":4560,"y":960,"w":400,"h":80},{"x":3440,"y":1040,"w":80,"h":240},{"x":3360,"y":1200,"w":80,"h":160},{"x":3280,"y":1280,"w":80,"h":160},{"x":640,"y":2960,"w":1280,"h":80},{"x":640,"y":3040,"w":80,"h":640},{"x":1840,"y":3040,"w":80,"h":1360},{"x":880,"y":3200,"w":480,"h":80},{"x":1520,"y":3200,"w":240,"h":80},{"x":880,"y":3280,"w":80,"h":80},{"x":1280,"y":3280,"w":80,"h":240},{"x":1520,"y":3280,"w":80,"h":320},{"x":1040,"y":3360,"w":80,"h":160},{"x":720,"y":3440,"w":320,"h":80},{"x":1120,"y":3440,"w":160,"h":80},{"x":1600,"y":3520,"w":240,"h":80},{"x":640,"y":3760,"w":880,"h":80},{"x":1680,"y":3760,"w":160,"h":80},{"x":640,"y":3840,"w":80,"h":560},{"x":1680,"y":3840,"w":80,"h":160},{"x":1120,"y":3920,"w":560,"h":80},{"x":800,"y":4000,"w":400,"h":80},{"x":1520,"y":4000,"w":80,"h":240},{"x":1120,"y":4080,"w":80,"h":160},{"x":1360,"y":4080,"w":80,"h":320},{"x":880,"y":4160,"w":80,"h":240},{"x":1680,"y":4160,"w":80,"h":240},{"x":720,"y":4320,"w":160,"h":80},{"x":960,"y":4320,"w":400,"h":80},{"x":1440,"y":4320,"w":240,"h":80},{"x":1760,"y":4320,"w":80,"h":80}]},{"name":"Open Arena","arenaWidth":3000,"arenaHeight":3000,"blockSize":80,"spawns":{"p1":{"x":500,"y":1500},"p2":{"x":2500,"y":1500}},"obstacles":[{"x":1400,"y":600,"w":200,"h":80},{"x":1400,"y":2320,"w":200,"h":80},{"x":600,"y":1400,"w":80,"h":200},{"x":2320,"y":1400,"w":80,"h":200},{"x":1200,"y":1200,"w":80,"h":80},{"x":1720,"y":1200,"w":80,"h":80},{"x":1200,"y":1720,"w":80,"h":80},{"x":1720,"y":1720,"w":80,"h":80}]}]};   // Embedded level data
 let currentLevel = 0;   // Index of active level
 
 // Fallback obstacles if levels.json is unavailable
@@ -2255,12 +2287,43 @@ let cpuDeathY = 0;
 const startScreen = document.getElementById('start-screen');
 const hud1p = document.getElementById('hud-1p');
 const killCountEl = hud1p.querySelector('.kill-count');
+const levelSelectEl = document.getElementById('level-select');
+const levelDropdown = document.getElementById('level-dropdown');
+
+// Populate level dropdown from embedded data
+function populateLevelDropdown() {
+  levelDropdown.innerHTML = '';
+  if (!levelData || !levelData.levels) return;
+  for (let i = 0; i < levelData.levels.length; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = levelData.levels[i].name || `Level ${i + 1}`;
+    levelDropdown.appendChild(opt);
+  }
+  levelDropdown.value = currentLevel;
+}
+
+levelDropdown.addEventListener('change', () => {
+  const idx = parseInt(levelDropdown.value);
+  loadLevel(idx);
+  // Reset kill count for 1P
+  if (gameMode === '1p') {
+    killCount = 0;
+    killCountEl.textContent = '0';
+    cpuRespawnTimer = 0;
+    if (cpuController) cpuController.blueKills = 0;
+  }
+});
 
 function startGame(mode) {
   gameMode = mode;
   startScreen.classList.add('hidden');
+  levelSelectEl.classList.add('visible');
   killCount = 0;
   cpuRespawnTimer = 0;
+
+  // Reset frame timer so first dt isn't huge from time spent on menu
+  lastTime = performance.now();
 
   if (mode === '1p') {
     p2.cpuControlled = true;
@@ -2273,8 +2336,8 @@ function startGame(mode) {
     hud1p.classList.remove('visible');
   }
 
-  // Reset players to spawn positions
-  fetchLevels();
+  // Load level (positions players + starts camera intro)
+  loadLevel(currentLevel);
 }
 
 // Start screen buttons
@@ -2539,6 +2602,7 @@ function buildDebugPanel() {
 }
 
 buildDebugPanel();
+populateLevelDropdown();
 fetchLevels();
 
 // ============================================================
@@ -2606,6 +2670,9 @@ function gameLoop(now) {
     }
   }
 
+  // Camera always updates (including during intro animation)
+  camera.update(dt, rawDt, players);
+
   // Skip game updates while on menu
   if (gameMode === 'menu') {
     requestAnimationFrame(gameLoop);
@@ -2623,7 +2690,6 @@ function gameLoop(now) {
   updateMuzzleFlashes(dt);
   updateDecals(dt);
   updateDeathFragments(dt);
-  camera.update(dt, players);
 
   // Render
   ctx.fillStyle = '#050505';
