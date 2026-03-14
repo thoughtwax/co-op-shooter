@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Level Editor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #0a0a0a; }
+  body {
+    display: flex;
+    font-family: 'JetBrains Mono', monospace;
+    color: #ccc;
+  }
+
+  canvas { flex: 1; display: block; cursor: crosshair; min-width: 0; width: 0; }
+
+  #sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    background: #111;
+    border-left: 1px solid #2a2a2a;
+    overflow-y: auto;
+    padding: 16px;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+  #sidebar::-webkit-scrollbar { width: 4px; }
+  #sidebar::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+  .section { margin-bottom: 18px; }
+  .section h3 {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #555;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1e1e1e;
+  }
+
+  .tool-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .tool-btn {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    color: #666;
+    padding: 7px 4px;
+    font-family: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .tool-btn:hover { border-color: #444; color: #aaa; }
+  .tool-btn.active { border-color: #00e5ff; color: #00e5ff; background: rgba(0,229,255,0.06); }
+  .tool-btn[data-tool="p2spawn"].active { border-color: #ff6644; color: #ff6644; background: rgba(255,102,68,0.06); }
+  .tool-btn[data-tool="erase"].active { border-color: #ff4444; color: #ff4444; background: rgba(255,68,68,0.06); }
+
+  #level-list { margin-bottom: 6px; }
+  .level-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 8px;
+    margin-bottom: 2px;
+    background: #151515;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 10px;
+    color: #666;
+  }
+  .level-item:hover { border-color: #2a2a2a; color: #aaa; }
+  .level-item.selected { border-color: #00e5ff; color: #00e5ff; background: rgba(0,229,255,0.04); }
+  .level-item .del {
+    background: none; border: none; color: #444; cursor: pointer;
+    font-size: 11px; font-family: inherit; padding: 0 2px; line-height: 1;
+  }
+  .level-item .del:hover { color: #ff4444; }
+
+  .btn {
+    display: block; width: 100%;
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: #666; padding: 7px; font-family: inherit; font-size: 10px;
+    cursor: pointer; border-radius: 4px; margin-bottom: 4px;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn:hover { border-color: #444; color: #aaa; }
+
+  .prop-row {
+    display: flex; align-items: center;
+    margin-bottom: 5px; gap: 8px;
+  }
+  .prop-row label { font-size: 10px; color: #555; min-width: 46px; }
+  .prop-row input {
+    flex: 1; background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: #ccc; padding: 4px 6px; font-family: inherit; font-size: 10px;
+    border-radius: 3px; outline: none; min-width: 0;
+  }
+  .prop-row input:focus { border-color: #00e5ff; }
+  .prop-row input[type="number"] { -moz-appearance: textfield; }
+  .prop-row input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  .info-row { font-size: 9px; color: #444; margin-bottom: 3px; font-variant-numeric: tabular-nums; }
+
+  .shortcuts { font-size: 9px; color: #333; line-height: 1.6; }
+  .shortcuts span { color: #555; }
+</style>
+</head>
+<body>
+
+<canvas id="editor"></canvas>
+
+<div id="sidebar">
+  <div class="section">
+    <h3>Tools</h3>
+    <div class="tool-bar">
+      <button class="tool-btn active" data-tool="paint">Paint</button>
+      <button class="tool-btn" data-tool="erase">Erase</button>
+      <button class="tool-btn" data-tool="p1spawn">P1 Spawn</button>
+      <button class="tool-btn" data-tool="p2spawn">P2 Spawn</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Levels</h3>
+    <div id="level-list"></div>
+    <button class="btn" id="add-level">+ Add Level</button>
+  </div>
+
+  <div class="section">
+    <h3>Properties</h3>
+    <div class="prop-row"><label>Name</label><input type="text" id="prop-name"></div>
+    <div class="prop-row"><label>Width</label><input type="number" id="prop-width" min="400" step="100"></div>
+    <div class="prop-row"><label>Height</label><input type="number" id="prop-height" min="400" step="100"></div>
+    <div class="prop-row"><label>Block</label><input type="number" id="prop-block" min="20" max="200" step="10"></div>
+  </div>
+
+  <div class="section">
+    <h3>File</h3>
+    <button class="btn" id="export-btn">Save levels.json</button>
+    <button class="btn" id="import-btn">Import levels.json</button>
+    <input type="file" id="import-input" accept=".json" style="display:none">
+    <button class="btn" id="clear-btn" style="margin-top:8px; color:#664444; border-color:#332222;">Clear All Blocks</button>
+  </div>
+
+  <div class="section">
+    <h3>Info</h3>
+    <div id="info-blocks" class="info-row">Blocks: 0</div>
+    <div id="info-mouse" class="info-row">World: -</div>
+    <div id="info-grid" class="info-row">Cell: -</div>
+    <div id="info-zoom" class="info-row">Zoom: -</div>
+  </div>
+
+  <div class="section">
+    <h3>Shortcuts</h3>
+    <div class="shortcuts">
+      <span>1-4</span> Tools<br>
+      <span>Space+Drag</span> Pan<br>
+      <span>Scroll</span> Zoom<br>
+      <span>Left Click</span> Paint / Place<br>
+      <span>Right Click</span> Erase<br>
+      <span>Ctrl+S</span> Save<br>
+      <span>F</span> Fit to view<br>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// HELPERS
+// ============================================================
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// ============================================================
+// STATE
+// ============================================================
+const S = {
+  levels: [],
+  cur: 0,
+  tool: 'paint',
+  cam: { x: 2500, y: 2500, zoom: 0.15 },
+  mouse: { sx: 0, sy: 0, wx: 0, wy: 0, gx: 0, gy: 0, inArena: false },
+  painting: false,
+  erasing: false,
+  panning: false,
+  panAnchor: { sx: 0, sy: 0, cx: 0, cy: 0 },
+  lastCell: null,
+  spaceDown: false,
+};
+
+function makeLevel(name) {
+  return {
+    name: name || 'Level ' + (S.levels.length + 1),
+    arenaWidth: 5000,
+    arenaHeight: 5000,
+    blockSize: 80,
+    spawns: { p1: { x: 2400, y: 2500 }, p2: { x: 2600, y: 2500 } },
+    blocks: new Set(),
+  };
+}
+
+function cur() { return S.levels[S.cur]; }
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const canvas = document.getElementById('editor');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const sidebar = document.getElementById('sidebar');
+  canvas.width = window.innerWidth - sidebar.offsetWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ============================================================
+// CAMERA
+// ============================================================
+function worldToScreen(wx, wy) {
+  return {
+    x: (wx - S.cam.x) * S.cam.zoom + canvas.width / 2,
+    y: (wy - S.cam.y) * S.cam.zoom + canvas.height / 2,
+  };
+}
+
+function screenToWorld(sx, sy) {
+  return {
+    x: (sx - canvas.width / 2) / S.cam.zoom + S.cam.x,
+    y: (sy - canvas.height / 2) / S.cam.zoom + S.cam.y,
+  };
+}
+
+function zoomAt(sx, sy, factor) {
+  const before = screenToWorld(sx, sy);
+  S.cam.zoom = clamp(S.cam.zoom * factor, 0.02, 3);
+  const after = screenToWorld(sx, sy);
+  S.cam.x += before.x - after.x;
+  S.cam.y += before.y - after.y;
+}
+
+function fitArena() {
+  const lv = cur();
+  if (!lv) return;
+  S.cam.x = lv.arenaWidth / 2;
+  S.cam.y = lv.arenaHeight / 2;
+  const padded = Math.max(lv.arenaWidth, lv.arenaHeight) * 1.1;
+  S.cam.zoom = Math.min(canvas.width, canvas.height) / padded;
+}
+
+// ============================================================
+// BRESENHAM LINE (for continuous painting)
+// ============================================================
+function lineCells(x0, y0, x1, y1) {
+  const cells = [];
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy, cx = x0, cy = y0;
+  while (true) {
+    cells.push([cx, cy]);
+    if (cx === x1 && cy === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; cx += sx; }
+    if (e2 < dx) { err += dx; cy += sy; }
+  }
+  return cells;
+}
+
+// ============================================================
+// BLOCK MERGING (for export)
+// ============================================================
+function mergeBlocks(blocks, bs) {
+  const cells = Array.from(blocks).map(k => k.split(',').map(Number));
+  if (cells.length === 0) return [];
+  const set = new Set(blocks);
+  const visited = new Set();
+  const rects = [];
+  cells.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  for (const [gx, gy] of cells) {
+    const key = gx + ',' + gy;
+    if (visited.has(key)) continue;
+    // Extend right
+    let w = 1;
+    while (set.has((gx + w) + ',' + gy) && !visited.has((gx + w) + ',' + gy)) w++;
+    // Extend down
+    let h = 1;
+    let canExtend = true;
+    while (canExtend) {
+      for (let x = gx; x < gx + w; x++) {
+        if (!set.has(x + ',' + (gy + h)) || visited.has(x + ',' + (gy + h))) {
+          canExtend = false; break;
+        }
+      }
+      if (canExtend) h++;
+    }
+    // Mark visited
+    for (let y = gy; y < gy + h; y++)
+      for (let x = gx; x < gx + w; x++)
+        visited.add(x + ',' + y);
+    rects.push({ x: gx * bs, y: gy * bs, w: w * bs, h: h * bs });
+  }
+  return rects;
+}
+
+// ============================================================
+// EXPORT / IMPORT
+// ============================================================
+let fileHandle = null; // File System Access API handle for saving in-place
+
+function buildExportData() {
+  return {
+    levels: S.levels.map(lv => ({
+      name: lv.name,
+      arenaWidth: lv.arenaWidth,
+      arenaHeight: lv.arenaHeight,
+      blockSize: lv.blockSize,
+      spawns: { p1: { ...lv.spawns.p1 }, p2: { ...lv.spawns.p2 } },
+      obstacles: mergeBlocks(lv.blocks, lv.blockSize),
+    })),
+  };
+}
+
+async function exportLevels() {
+  const json = JSON.stringify(buildExportData(), null, 2);
+
+  // Try File System Access API (Chrome/Edge) — saves directly to disk
+  if (window.showSaveFilePicker) {
+    try {
+      if (!fileHandle) {
+        fileHandle = await window.showSaveFilePicker({
+          suggestedName: 'levels.json',
+          types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+        });
+      }
+      const writable = await fileHandle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      showSaveFlash();
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return; // user cancelled picker
+      // Fall through to download
+    }
+  }
+
+  // Fallback: browser download
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'levels.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function showSaveFlash() {
+  const btn = document.getElementById('export-btn');
+  const orig = btn.textContent;
+  btn.textContent = 'Saved ✓';
+  btn.style.borderColor = '#00e5ff';
+  btn.style.color = '#00e5ff';
+  setTimeout(() => {
+    btn.textContent = orig;
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }, 1200);
+}
+
+function importLevels(json) {
+  try {
+    const data = JSON.parse(json);
+    if (!data.levels || !Array.isArray(data.levels)) throw new Error('Invalid format');
+    S.levels = data.levels.map(lv => {
+      const blocks = new Set();
+      const bs = lv.blockSize || 80;
+      if (lv.obstacles) {
+        for (const obs of lv.obstacles) {
+          const sx = Math.round(obs.x / bs);
+          const sy = Math.round(obs.y / bs);
+          const ex = Math.round((obs.x + obs.w) / bs);
+          const ey = Math.round((obs.y + obs.h) / bs);
+          for (let gy = sy; gy < ey; gy++)
+            for (let gx = sx; gx < ex; gx++)
+              blocks.add(gx + ',' + gy);
+        }
+      }
+      return {
+        name: lv.name || 'Untitled',
+        arenaWidth: lv.arenaWidth || 5000,
+        arenaHeight: lv.arenaHeight || 5000,
+        blockSize: bs,
+        spawns: {
+          p1: lv.spawns?.p1 || { x: 2400, y: 2500 },
+          p2: lv.spawns?.p2 || { x: 2600, y: 2500 },
+        },
+        blocks,
+      };
+    });
+    if (S.levels.length === 0) S.levels.push(makeLevel());
+    S.cur = 0;
+    fitArena();
+    refreshUI();
+  } catch (e) {
+    alert('Failed to import: ' + e.message);
+  }
+}
+
+// ============================================================
+// INPUT: MOUSE
+// ============================================================
+function updateMouseWorld(e) {
+  const rect = canvas.getBoundingClientRect();
+  S.mouse.sx = e.clientX - rect.left;
+  S.mouse.sy = e.clientY - rect.top;
+  const w = screenToWorld(S.mouse.sx, S.mouse.sy);
+  S.mouse.wx = w.x;
+  S.mouse.wy = w.y;
+  const lv = cur();
+  if (lv) {
+    S.mouse.gx = Math.floor(w.x / lv.blockSize);
+    S.mouse.gy = Math.floor(w.y / lv.blockSize);
+    S.mouse.inArena = w.x >= 0 && w.x < lv.arenaWidth && w.y >= 0 && w.y < lv.arenaHeight;
+  }
+}
+
+function applyTool(gx, gy) {
+  const lv = cur();
+  if (!lv) return;
+  const bs = lv.blockSize;
+  const maxGx = Math.floor(lv.arenaWidth / bs) - 1;
+  const maxGy = Math.floor(lv.arenaHeight / bs) - 1;
+  if (gx < 0 || gy < 0 || gx > maxGx || gy > maxGy) return;
+  const key = gx + ',' + gy;
+
+  if (S.tool === 'paint') {
+    lv.blocks.add(key);
+  } else if (S.tool === 'erase') {
+    lv.blocks.delete(key);
+  } else if (S.tool === 'p1spawn') {
+    lv.spawns.p1 = { x: (gx + 0.5) * bs, y: (gy + 0.5) * bs };
+  } else if (S.tool === 'p2spawn') {
+    lv.spawns.p2 = { x: (gx + 0.5) * bs, y: (gy + 0.5) * bs };
+  }
+}
+
+canvas.addEventListener('mousedown', e => {
+  if (e.target !== canvas) return;
+  updateMouseWorld(e);
+
+  // Middle mouse or space+left = pan
+  if (e.button === 1 || (e.button === 0 && S.spaceDown)) {
+    S.panning = true;
+    S.panAnchor = { sx: e.clientX, sy: e.clientY, cx: S.cam.x, cy: S.cam.y };
+    e.preventDefault();
+    return;
+  }
+
+  if (!S.mouse.inArena) return;
+
+  // Right click = erase regardless of tool
+  if (e.button === 2) {
+    S.erasing = true;
+    S.lastCell = [S.mouse.gx, S.mouse.gy];
+    const lv = cur();
+    if (lv) lv.blocks.delete(S.mouse.gx + ',' + S.mouse.gy);
+    return;
+  }
+
+  // Left click = apply current tool
+  if (e.button === 0) {
+    if (S.tool === 'p1spawn' || S.tool === 'p2spawn') {
+      applyTool(S.mouse.gx, S.mouse.gy);
+    } else {
+      S.painting = true;
+      S.lastCell = [S.mouse.gx, S.mouse.gy];
+      applyTool(S.mouse.gx, S.mouse.gy);
+    }
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  updateMouseWorld(e);
+
+  if (S.panning) {
+    S.cam.x = S.panAnchor.cx - (e.clientX - S.panAnchor.sx) / S.cam.zoom;
+    S.cam.y = S.panAnchor.cy - (e.clientY - S.panAnchor.sy) / S.cam.zoom;
+    return;
+  }
+
+  const gx = S.mouse.gx, gy = S.mouse.gy;
+
+  if (S.painting && S.mouse.inArena) {
+    if (S.lastCell) {
+      const cells = lineCells(S.lastCell[0], S.lastCell[1], gx, gy);
+      for (const [cx, cy] of cells) applyTool(cx, cy);
+    }
+    S.lastCell = [gx, gy];
+  }
+
+  if (S.erasing && S.mouse.inArena) {
+    if (S.lastCell) {
+      const cells = lineCells(S.lastCell[0], S.lastCell[1], gx, gy);
+      const lv = cur();
+      if (lv) for (const [cx, cy] of cells) lv.blocks.delete(cx + ',' + cy);
+    }
+    S.lastCell = [gx, gy];
+  }
+});
+
+window.addEventListener('mouseup', e => {
+  S.painting = false;
+  S.erasing = false;
+  S.panning = false;
+  S.lastCell = null;
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.85 : 1.18;
+  const rect = canvas.getBoundingClientRect();
+  zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
+}, { passive: false });
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ============================================================
+// INPUT: KEYBOARD
+// ============================================================
+function inputFocused() {
+  const el = document.activeElement;
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    S.spaceDown = true;
+    if (!inputFocused()) e.preventDefault();
+  }
+  if (inputFocused()) return;
+  if (e.key === '1') setTool('paint');
+  if (e.key === '2') setTool('erase');
+  if (e.key === '3') setTool('p1spawn');
+  if (e.key === '4') setTool('p2spawn');
+  if (e.key === 'f' || e.key === 'F') fitArena();
+  if (e.ctrlKey && e.key === 's') { e.preventDefault(); exportLevels(); }
+});
+
+window.addEventListener('keyup', e => {
+  if (e.code === 'Space') S.spaceDown = false;
+});
+
+// ============================================================
+// UI UPDATES
+// ============================================================
+const elLevelList = document.getElementById('level-list');
+const elName = document.getElementById('prop-name');
+const elWidth = document.getElementById('prop-width');
+const elHeight = document.getElementById('prop-height');
+const elBlock = document.getElementById('prop-block');
+const elInfoBlocks = document.getElementById('info-blocks');
+const elInfoMouse = document.getElementById('info-mouse');
+const elInfoGrid = document.getElementById('info-grid');
+const elInfoZoom = document.getElementById('info-zoom');
+
+function setTool(tool) {
+  S.tool = tool;
+  document.querySelectorAll('.tool-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tool === tool);
+  });
+}
+
+function refreshUI() {
+  // Level list
+  elLevelList.innerHTML = '';
+  S.levels.forEach((lv, i) => {
+    const div = document.createElement('div');
+    div.className = 'level-item' + (i === S.cur ? ' selected' : '');
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = lv.name;
+    div.appendChild(nameSpan);
+    if (S.levels.length > 1) {
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = 'x';
+      del.addEventListener('click', ev => { ev.stopPropagation(); deleteLevel(i); });
+      div.appendChild(del);
+    }
+    div.addEventListener('click', () => selectLevel(i));
+    elLevelList.appendChild(div);
+  });
+
+  // Properties
+  const lv = cur();
+  if (lv) {
+    elName.value = lv.name;
+    elWidth.value = lv.arenaWidth;
+    elHeight.value = lv.arenaHeight;
+    elBlock.value = lv.blockSize;
+  }
+}
+
+function selectLevel(i) {
+  S.cur = clamp(i, 0, S.levels.length - 1);
+  fitArena();
+  refreshUI();
+}
+
+function deleteLevel(i) {
+  if (S.levels.length <= 1) return;
+  S.levels.splice(i, 1);
+  if (S.cur >= S.levels.length) S.cur = S.levels.length - 1;
+  refreshUI();
+}
+
+// Tool buttons
+document.querySelectorAll('.tool-btn').forEach(b => {
+  b.addEventListener('click', () => setTool(b.dataset.tool));
+});
+
+// Add level
+document.getElementById('add-level').addEventListener('click', () => {
+  S.levels.push(makeLevel());
+  selectLevel(S.levels.length - 1);
+});
+
+// Property inputs
+elName.addEventListener('input', () => {
+  const lv = cur();
+  if (lv) { lv.name = elName.value; refreshUI(); }
+});
+elWidth.addEventListener('change', () => {
+  const lv = cur();
+  if (lv) { lv.arenaWidth = Math.max(400, parseInt(elWidth.value) || 5000); refreshUI(); }
+});
+elHeight.addEventListener('change', () => {
+  const lv = cur();
+  if (lv) { lv.arenaHeight = Math.max(400, parseInt(elHeight.value) || 5000); refreshUI(); }
+});
+elBlock.addEventListener('change', () => {
+  const lv = cur();
+  if (lv) { lv.blockSize = clamp(parseInt(elBlock.value) || 80, 20, 200); refreshUI(); }
+});
+
+// Export/Import
+document.getElementById('export-btn').addEventListener('click', exportLevels);
+document.getElementById('import-btn').addEventListener('click', () => {
+  document.getElementById('import-input').click();
+});
+document.getElementById('import-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => importLevels(reader.result);
+  reader.readAsText(file);
+  e.target.value = '';
+});
+document.getElementById('clear-btn').addEventListener('click', () => {
+  const lv = cur();
+  if (lv && confirm('Clear all blocks in "' + lv.name + '"?')) {
+    lv.blocks.clear();
+  }
+});
+
+// ============================================================
+// RENDERING
+// ============================================================
+function render() {
+  const w = canvas.width, h = canvas.height;
+
+  // Clear
+  ctx.fillStyle = '#050505';
+  ctx.fillRect(0, 0, w, h);
+
+  const lv = cur();
+  if (!lv) return;
+  const bs = lv.blockSize;
+  const aw = lv.arenaWidth, ah = lv.arenaHeight;
+
+  // Camera transform
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(S.cam.zoom, S.cam.zoom);
+  ctx.translate(-S.cam.x, -S.cam.y);
+
+  // Arena background
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, aw, ah);
+
+  // Grid (only when visible enough)
+  const cellPx = bs * S.cam.zoom;
+  if (cellPx > 6) {
+    ctx.strokeStyle = cellPx > 20 ? '#181818' : '#121212';
+    ctx.lineWidth = 1 / S.cam.zoom;
+    const startGx = Math.max(0, Math.floor(screenToWorld(0, 0).x / bs));
+    const startGy = Math.max(0, Math.floor(screenToWorld(0, 0).y / bs));
+    const endGx = Math.min(Math.ceil(aw / bs), Math.ceil(screenToWorld(w, 0).x / bs) + 1);
+    const endGy = Math.min(Math.ceil(ah / bs), Math.ceil(screenToWorld(0, h).y / bs) + 1);
+    ctx.beginPath();
+    for (let gx = startGx; gx <= endGx; gx++) {
+      const x = gx * bs;
+      ctx.moveTo(x, startGy * bs);
+      ctx.lineTo(x, endGy * bs);
+    }
+    for (let gy = startGy; gy <= endGy; gy++) {
+      const y = gy * bs;
+      ctx.moveTo(startGx * bs, y);
+      ctx.lineTo(endGx * bs, y);
+    }
+    ctx.stroke();
+  }
+
+  // Obstacle blocks
+  ctx.fillStyle = '#222';
+  ctx.strokeStyle = '#3a3a3a';
+  ctx.lineWidth = 1 / S.cam.zoom;
+  for (const key of lv.blocks) {
+    const [gx, gy] = key.split(',').map(Number);
+    ctx.fillRect(gx * bs, gy * bs, bs, bs);
+    ctx.strokeRect(gx * bs, gy * bs, bs, bs);
+  }
+
+  // Spawn points
+  drawSpawn(lv.spawns.p1, '#00e5ff', 'P1');
+  drawSpawn(lv.spawns.p2, '#ff6644', 'P2');
+
+  // Arena border
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 2 / S.cam.zoom;
+  ctx.strokeRect(0, 0, aw, ah);
+
+  // Hover highlight
+  if (S.mouse.inArena && !S.panning) {
+    const hx = S.mouse.gx * bs, hy = S.mouse.gy * bs;
+    if (S.tool === 'paint') {
+      ctx.fillStyle = 'rgba(0,229,255,0.12)';
+      ctx.strokeStyle = 'rgba(0,229,255,0.35)';
+    } else if (S.tool === 'erase') {
+      ctx.fillStyle = 'rgba(255,68,68,0.12)';
+      ctx.strokeStyle = 'rgba(255,68,68,0.35)';
+    } else if (S.tool === 'p1spawn') {
+      ctx.fillStyle = 'rgba(0,229,255,0.12)';
+      ctx.strokeStyle = 'rgba(0,229,255,0.35)';
+    } else {
+      ctx.fillStyle = 'rgba(255,102,68,0.12)';
+      ctx.strokeStyle = 'rgba(255,102,68,0.35)';
+    }
+    ctx.lineWidth = 2 / S.cam.zoom;
+    ctx.fillRect(hx, hy, bs, bs);
+    ctx.strokeRect(hx, hy, bs, bs);
+  }
+
+  ctx.restore();
+
+  // Info
+  elInfoBlocks.textContent = 'Blocks: ' + lv.blocks.size;
+  elInfoMouse.textContent = 'World: ' + Math.round(S.mouse.wx) + ', ' + Math.round(S.mouse.wy);
+  elInfoGrid.textContent = 'Cell: ' + S.mouse.gx + ', ' + S.mouse.gy;
+  elInfoZoom.textContent = 'Zoom: ' + (S.cam.zoom * 100).toFixed(0) + '%';
+}
+
+function drawSpawn(spawn, color, label) {
+  const r = 18;
+  ctx.globalAlpha = 0.2;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(spawn.x, spawn.y, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.8;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2 / S.cam.zoom;
+  ctx.beginPath();
+  ctx.arc(spawn.x, spawn.y, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Crosshair
+  ctx.beginPath();
+  ctx.moveTo(spawn.x - r * 0.6, spawn.y);
+  ctx.lineTo(spawn.x + r * 0.6, spawn.y);
+  ctx.moveTo(spawn.x, spawn.y - r * 0.6);
+  ctx.lineTo(spawn.x, spawn.y + r * 0.6);
+  ctx.stroke();
+
+  // Label
+  const fontSize = Math.max(10, 12 / S.cam.zoom);
+  ctx.font = fontSize + 'px JetBrains Mono';
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.9;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, spawn.x, spawn.y + r + fontSize * 0.8);
+
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// INIT — try loading existing levels.json, fall back to empty level
+// ============================================================
+async function init() {
+  try {
+    const res = await fetch('levels.json');
+    if (res.ok) {
+      const json = await res.text();
+      importLevels(json);
+      return;
+    }
+  } catch (e) {
+    // fetch fails on file:// — that's fine
+  }
+  S.levels.push(makeLevel('Level 1'));
+  fitArena();
+  refreshUI();
+}
+init();
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+function loop() {
+  render();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

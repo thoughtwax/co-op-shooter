@@ -8,7 +8,14 @@ Two-player same-keyboard co-op top-down shooter. Priority is incredible movement
 
 ## Running
 
-Open `index.html` directly in a browser. No server or build required.
+To load custom levels from `levels.json`, serve the directory with a local server:
+
+```
+npx serve .
+# or: python3 -m http.server
+```
+
+Opening `index.html` directly via `file://` still works but falls back to hardcoded obstacles (levels.json requires HTTP to fetch).
 
 ## Architecture
 
@@ -55,3 +62,37 @@ Everything lives in a single `index.html` with inline `<style>` and `<script>`. 
 
 - World space: (0,0) is top-left of arena, extends to (arenaWidth, arenaHeight)
 - The camera transforms world→screen. Mouse input must be converted via `camera.screenToWorld()` for gameplay use.
+
+## Level Editor
+
+`editor.html` is a standalone level designer. Open it in a browser (no server needed for editing).
+
+### Workflow
+1. Open `editor.html` — paint obstacles on a grid, place P1/P2 spawn points
+2. Export → downloads `levels.json`
+3. Save `levels.json` in the same directory as `index.html`
+4. Serve with a local server and open `index.html` — it loads levels automatically
+
+### Editor Controls
+- **Left click/drag**: Paint blocks (or place spawn with spawn tool)
+- **Right click/drag**: Erase blocks
+- **Scroll**: Zoom
+- **Space+drag or middle-mouse drag**: Pan
+- **1-4**: Switch tools (Paint, Erase, P1 Spawn, P2 Spawn)
+- **F**: Fit arena to view
+- **Ctrl+S**: Export
+
+### levels.json Format
+```json
+{
+  "levels": [{
+    "name": "Level 1",
+    "arenaWidth": 5000, "arenaHeight": 5000,
+    "blockSize": 80,
+    "spawns": { "p1": {"x":2400,"y":2500}, "p2": {"x":2600,"y":2500} },
+    "obstacles": [{ "x": 800, "y": 800, "w": 240, "h": 80 }]
+  }]
+}
+```
+
+The editor merges adjacent blocks into larger rectangles on export for efficiency. On import, rectangles are decomposed back into grid cells.
