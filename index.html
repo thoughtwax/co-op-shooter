@@ -386,8 +386,8 @@ const CFG = {
   cameraMaxZoom: 1.0,
   cameraZoomPadding: 300,
 
-  // Bomb (secondary weapon — double-press-and-hold shoot)
-  doublePressWindow: 0.3,    // seconds between presses to trigger bomb
+  // Special weapon (hold shoot to charge)
+  specialChargeThreshold: 0.3, // seconds of holding shoot before special activates
   bombMaxCharge: 1.5,        // seconds to full charge
   bombMinRadius: 40,         // explosion radius at min charge
   bombMaxRadius: 160,        // explosion radius at max charge
@@ -397,6 +397,28 @@ const CFG = {
   bombChargeSlowdown: 0.4,   // movement multiplier while charging
   bombRingWidth: 30,         // width of expanding damage ring
   bombExpandSpeed: 500,      // how fast explosion ring expands (px/s)
+
+  // Juice — Hitstop
+  hitstopDuration: 0.05,     // seconds of freeze on hit
+  hitstopHeavy: 0.08,        // seconds of freeze on kill/heavy hit
+
+  // Juice — Camera Punch
+  cameraPunchSniper: 3,      // px offset on sniper fire
+  cameraPunchShotgun: 8,     // px offset on shotgun fire
+  cameraPunchBomb: 12,       // px offset on bomb fire
+  cameraPunchDecay: 15,      // how fast punch decays
+
+  // Juice — Damage Flash
+  damageFlashAlpha: 0.3,     // max vignette opacity
+  damageFlashDuration: 0.3,  // seconds
+
+  // Juice — Decals
+  decalLifetime: 8,          // seconds before decal fades
+  decalMaxCount: 60,         // max decals on screen
+
+  // Juice — Death
+  deathSlowmo: 0.3,          // time scale during death slowmo
+  deathSlowmoDuration: 0.2,  // real-time seconds of slowmo
 
   // Arena
   arenaWidth: 5000,
@@ -468,6 +490,7 @@ const camera = {
   zoom: 1,
   targetX: 0, targetY: 0, targetZoom: 1,
   shakeX: 0, shakeY: 0, shakeIntensity: 0,
+  punchX: 0, punchY: 0,
 
   update(dt, players) {
     // Target: midpoint of players
@@ -498,15 +521,26 @@ const camera = {
     if (this.shakeIntensity < 0.1) this.shakeIntensity = 0;
     this.shakeX = (Math.random() - 0.5) * this.shakeIntensity;
     this.shakeY = (Math.random() - 0.5) * this.shakeIntensity;
+
+    // Camera punch decay
+    this.punchX *= Math.pow(0.001, dt * CFG.cameraPunchDecay);
+    this.punchY *= Math.pow(0.001, dt * CFG.cameraPunchDecay);
+    if (Math.abs(this.punchX) < 0.1) this.punchX = 0;
+    if (Math.abs(this.punchY) < 0.1) this.punchY = 0;
   },
 
   shake(intensity) {
     this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
   },
 
+  punch(dirX, dirY, magnitude) {
+    this.punchX -= dirX * magnitude;
+    this.punchY -= dirY * magnitude;
+  },
+
   applyTransform() {
     ctx.save();
-    ctx.translate(canvas.width / 2 + this.shakeX, canvas.height / 2 + this.shakeY);
+    ctx.translate(canvas.width / 2 + this.shakeX + this.punchX, canvas.height / 2 + this.shakeY + this.punchY);
     ctx.scale(this.zoom, this.zoom);
     ctx.translate(-this.x, -this.y);
   },
@@ -634,6 +668,159 @@ function drawGhosts() {
 }
 
 // ============================================================
+// IMPACT SPARKS
+// ============================================================
+const sparks = [];
+
+function spawnSpark(x, y, size) {
+  sparks.push({ x, y, size: size || 8, life: 0.05, maxLife: 0.05 });
+}
+
+function updateSparks(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    sparks[i].life -= dt;
+    if (sparks[i].life <= 0) sparks.splice(i, 1);
+  }
+}
+
+function drawSparks() {
+  for (const s of sparks) {
+    const t = s.life / s.maxLife;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = t;
+    const len = s.size * t;
+    ctx.beginPath();
+    ctx.moveTo(s.x - len, s.y); ctx.lineTo(s.x + len, s.y);
+    ctx.moveTo(s.x, s.y - len); ctx.lineTo(s.x, s.y + len);
+    ctx.moveTo(s.x - len * 0.6, s.y - len * 0.6); ctx.lineTo(s.x + len * 0.6, s.y + len * 0.6);
+    ctx.moveTo(s.x + len * 0.6, s.y - len * 0.6); ctx.lineTo(s.x - len * 0.6, s.y + len * 0.6);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// MUZZLE FLASHES
+// ============================================================
+const muzzleFlashes = [];
+
+function spawnMuzzleFlash(x, y, color, radius) {
+  muzzleFlashes.push({ x, y, color, radius, life: 0.06, maxLife: 0.06 });
+}
+
+function updateMuzzleFlashes(dt) {
+  for (let i = muzzleFlashes.length - 1; i >= 0; i--) {
+    muzzleFlashes[i].life -= dt;
+    if (muzzleFlashes[i].life <= 0) muzzleFlashes.splice(i, 1);
+  }
+}
+
+function drawMuzzleFlashes() {
+  const prev = ctx.globalCompositeOperation;
+  ctx.globalCompositeOperation = 'lighter';
+  for (const m of muzzleFlashes) {
+    const t = m.life / m.maxLife;
+    ctx.globalAlpha = t * 0.3;
+    ctx.fillStyle = m.color;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.radius * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = t * 0.6;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = t;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.radius * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = prev;
+}
+
+// ============================================================
+// ARENA DECALS
+// ============================================================
+const decals = [];
+
+function spawnDecal(x, y) {
+  if (decals.length >= CFG.decalMaxCount) decals.shift();
+  decals.push({ x, y, size: rand(2, 4), life: CFG.decalLifetime, maxLife: CFG.decalLifetime });
+}
+
+function updateDecals(dt) {
+  for (let i = decals.length - 1; i >= 0; i--) {
+    decals[i].life -= dt;
+    if (decals[i].life <= 0) decals.splice(i, 1);
+  }
+}
+
+function drawDecals() {
+  for (const d of decals) {
+    ctx.globalAlpha = Math.min(1, d.life / (d.maxLife * 0.3)) * 0.35;
+    ctx.fillStyle = '#222222';
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// DEATH FRAGMENTS
+// ============================================================
+const deathFragments = [];
+
+function spawnDeathFragments(x, y, color, size) {
+  const count = 14;
+  const arc = (Math.PI * 2) / count;
+  for (let i = 0; i < count; i++) {
+    const angle = i * arc;
+    const speed = rand(200, 400);
+    deathFragments.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      rotation: angle,
+      rotSpeed: rand(-8, 8),
+      arcLen: arc * 0.8,
+      radius: size,
+      color,
+      life: rand(0.5, 0.8),
+      maxLife: 0.8,
+    });
+  }
+}
+
+function updateDeathFragments(dt) {
+  for (let i = deathFragments.length - 1; i >= 0; i--) {
+    const f = deathFragments[i];
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+    f.vx *= Math.pow(0.01, dt);
+    f.vy *= Math.pow(0.01, dt);
+    f.rotation += f.rotSpeed * dt;
+    f.life -= dt;
+    if (f.life <= 0) deathFragments.splice(i, 1);
+  }
+}
+
+function drawDeathFragments() {
+  for (const f of deathFragments) {
+    const alpha = clamp(f.life / f.maxLife, 0, 1);
+    ctx.globalAlpha = alpha * 0.8;
+    ctx.strokeStyle = f.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.radius, f.rotation, f.rotation + f.arcLen);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
 // BULLETS
 // ============================================================
 const bullets = [];
@@ -693,6 +880,8 @@ function updateBullets(dt) {
       if (b.x > obs.x && b.x < obs.x + obs.w && b.y > obs.y && b.y < obs.y + obs.h) {
         b.life = 0;
         spawnParticles(b.x, b.y, '#ffffff', 3, 100, 0.2, 2);
+        spawnSpark(b.x, b.y, 6);
+        spawnDecal(b.x, b.y);
         break;
       }
     }
@@ -705,7 +894,11 @@ function updateBullets(dt) {
         b.life = 0;
         p.takeDamage(b.damage, b.vx, b.vy);
         spawnParticles(b.x, b.y, p.color, 8, 200, 0.3, 3);
+        spawnSpark(b.x, b.y, 10);
         camera.shake(4);
+        hitstopTimer = CFG.hitstopDuration;
+        damageFlashTimer = CFG.damageFlashDuration;
+        damageFlashColor = b.color;
         break;
       }
     }
@@ -872,7 +1065,11 @@ function updateBombExplosions(dt) {
         p.takeDamage(e.damage, p.x - e.x, p.y - e.y);
         e.hasHit.add(p);
         spawnParticles(p.x, p.y, p.color, 10, 250, 0.3, 3);
+        spawnSpark(p.x, p.y, 14);
         camera.shake(5);
+        hitstopTimer = CFG.hitstopHeavy;
+        damageFlashTimer = CFG.damageFlashDuration;
+        damageFlashColor = e.color;
       }
     }
   }
@@ -998,16 +1195,10 @@ class Player {
     this.size = controls.bodySize || CFG.playerSize;
     this.nubbinMul = controls.nubbinMul || 1.6;
 
-    // Slam charge state
-    this.chargeTime = 0;
-    this.isCharging = false;
-    this.slamCooldownTimer = 0;
-
-    // Bomb (double-press secondary weapon)
-    this.shootWasDown = false;      // previous frame's shoot state
-    this.lastShootReleaseTime = 0;  // timestamp of last shoot release
-    this.bombCharging = false;
-    this.bombChargeTime = 0;
+    // Special weapon (hold shoot to charge)
+    this.shootHoldTime = 0;         // how long shoot has been held
+    this.chargingSpecial = false;
+    this.specialChargeTime = 0;
     this.bombTargetX = 0;           // Blue's aimed target
     this.bombTargetY = 0;
   }
@@ -1065,8 +1256,8 @@ class Player {
     return !!keys[this.controls.dashKey];
   }
 
-  _fireBomb() {
-    const chargeLevel = Math.max(0.1, this.bombChargeTime / CFG.bombMaxCharge);
+  _fireSpecial() {
+    const chargeLevel = Math.max(0.1, this.specialChargeTime / CFG.bombMaxCharge);
 
     if (this.controls.aimMode === 'mouse') {
       // Blue — lob projectile to cursor position
@@ -1121,8 +1312,8 @@ class Player {
       this.vy *= moveFriction;
     }
 
-    // Speed cap (reduced while charging bomb)
-    const effectiveMaxSpeed = this.bombCharging
+    // Speed cap (reduced while charging special weapon)
+    const effectiveMaxSpeed = this.chargingSpecial
       ? CFG.maxSpeed * CFG.bombChargeSlowdown
       : CFG.maxSpeed;
     const speed = Math.hypot(this.vx, this.vy);
@@ -1214,78 +1405,75 @@ class Player {
       camera.shake(3);
     }
 
-    // Shooting + bomb (double-press-and-hold for bomb)
+    // Shooting — hold to charge special weapon
     const shootDown = this.isShooting();
-    const now = performance.now() / 1000;
 
-    // Detect press transition (false→true)
-    if (shootDown && !this.shootWasDown) {
-      const timeSinceRelease = now - this.lastShootReleaseTime;
-      if (timeSinceRelease < CFG.doublePressWindow && this.lastShootReleaseTime > 0) {
-        // Double-press detected — enter bomb mode
-        this.bombCharging = true;
-        this.bombChargeTime = 0;
+    if (shootDown) {
+      this.shootHoldTime += dt;
+
+      // Cross threshold → enter special weapon mode
+      if (!this.chargingSpecial && this.shootHoldTime >= CFG.specialChargeThreshold) {
+        this.chargingSpecial = true;
+        this.specialChargeTime = 0;
       }
-    }
 
-    // Detect release transition (true→false)
-    if (!shootDown && this.shootWasDown) {
-      if (this.bombCharging) {
-        // Release bomb
-        this._fireBomb();
-        this.bombCharging = false;
-        this.bombChargeTime = 0;
+      if (this.chargingSpecial) {
+        // Charge the special weapon
+        this.specialChargeTime = Math.min(this.specialChargeTime + dt, CFG.bombMaxCharge);
+
+        // Update target position (tracks cursor/self while charging)
+        if (this.controls.aimMode === 'mouse') {
+          const world = camera.screenToWorld(mouse.x, mouse.y);
+          this.bombTargetX = world.x;
+          this.bombTargetY = world.y;
+        } else {
+          this.bombTargetX = this.x;
+          this.bombTargetY = this.y;
+        }
+      } else if (this.fireTimer <= 0) {
+        // Normal shooting — branched by weapon type
+        if (this.controls.weaponType === 'shotgun') {
+          // Red: directional shotgun blast
+          spawnShotgunBlast(this.x, this.y, this.aimAngle, this.color, this);
+          this.fireTimer = 1 / CFG.shotgunFireRate;
+
+          // Recoil
+          this.vx -= this.aimDirX * CFG.shotgunRecoil;
+          this.vy -= this.aimDirY * CFG.shotgunRecoil;
+
+          // Muzzle flash — wider spread
+          const bx = this.x + this.aimDirX * (this.size + 4);
+          const by = this.y + this.aimDirY * (this.size + 4);
+          spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 6, 180, 0.2, 3);
+          spawnMuzzleFlash(bx, by, this.color, 12);
+          camera.shake(3);
+          camera.punch(this.aimDirX, this.aimDirY, CFG.cameraPunchShotgun);
+        } else {
+          // Blue: rapid single-line sniper
+          const bx = this.x + this.aimDirX * (this.size + 4);
+          const by = this.y + this.aimDirY * (this.size + 4);
+          spawnBullet(bx, by, this.aimDirX, this.aimDirY, this.color, this);
+          this.fireTimer = 1 / CFG.fireRate;
+
+          // Recoil
+          this.vx -= this.aimDirX * CFG.recoilStrength;
+          this.vy -= this.aimDirY * CFG.recoilStrength;
+
+          // Muzzle particles
+          spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 3, 150, 0.15, 2);
+          spawnMuzzleFlash(bx, by, this.color, 6);
+          camera.shake(1.5);
+          camera.punch(this.aimDirX, this.aimDirY, CFG.cameraPunchSniper);
+        }
       }
-      this.lastShootReleaseTime = now;
-    }
-
-    this.shootWasDown = shootDown;
-
-    if (this.bombCharging && shootDown) {
-      // Charge the bomb
-      this.bombChargeTime = Math.min(this.bombChargeTime + dt, CFG.bombMaxCharge);
-
-      // Update Blue's target position (tracks cursor while charging)
-      if (this.controls.aimMode === 'mouse') {
-        const world = camera.screenToWorld(mouse.x, mouse.y);
-        this.bombTargetX = world.x;
-        this.bombTargetY = world.y;
-      } else {
-        // Red — bomb emanates from self, no aiming needed
-        this.bombTargetX = this.x;
-        this.bombTargetY = this.y;
+    } else {
+      // Shoot released
+      if (this.chargingSpecial) {
+        this._fireSpecial();
+        this.chargingSpecial = false;
+        this.specialChargeTime = 0;
       }
-    } else if (!this.bombCharging && shootDown && this.fireTimer <= 0) {
-      // Normal shooting — branched by weapon type
-      if (this.controls.weaponType === 'shotgun') {
-        // Red: directional shotgun blast
-        spawnShotgunBlast(this.x, this.y, this.aimAngle, this.color, this);
-        this.fireTimer = 1 / CFG.shotgunFireRate;
-
-        // Recoil
-        this.vx -= this.aimDirX * CFG.shotgunRecoil;
-        this.vy -= this.aimDirY * CFG.shotgunRecoil;
-
-        // Muzzle flash — wider spread
-        const bx = this.x + this.aimDirX * (this.size + 4);
-        const by = this.y + this.aimDirY * (this.size + 4);
-        spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 6, 180, 0.2, 3);
-        camera.shake(3);
-      } else {
-        // Blue: rapid single-line sniper
-        const bx = this.x + this.aimDirX * (this.size + 4);
-        const by = this.y + this.aimDirY * (this.size + 4);
-        spawnBullet(bx, by, this.aimDirX, this.aimDirY, this.color, this);
-        this.fireTimer = 1 / CFG.fireRate;
-
-        // Recoil
-        this.vx -= this.aimDirX * CFG.recoilStrength;
-        this.vy -= this.aimDirY * CFG.recoilStrength;
-
-        // Muzzle particles
-        spawnDirectionalParticles(bx, by, this.aimDirX, this.aimDirY, this.color, 3, 150, 0.15, 2);
-        camera.shake(1.5);
-      }
+      this.shootHoldTime = 0;
     }
 
     // Movement particles
@@ -1313,10 +1501,14 @@ class Player {
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
-      this.bombCharging = false;
-      this.bombChargeTime = 0;
+      this.chargingSpecial = false;
+      this.specialChargeTime = 0;
       spawnParticles(this.x, this.y, this.color, 20, 300, 0.5, 4);
+      spawnDeathFragments(this.x, this.y, this.color, this.size);
       camera.shake(10);
+      hitstopTimer = CFG.hitstopHeavy;
+      deathSlowmoTimer = CFG.deathSlowmoDuration;
+      deathFlashTimer = 0.08;
     }
   }
 
@@ -1371,9 +1563,9 @@ class Player {
       ctx.stroke();
     }
 
-    // Bomb charge indicator
-    if (this.bombCharging) {
-      const chargeLevel = this.bombChargeTime / CFG.bombMaxCharge;
+    // Special weapon charge indicator
+    if (this.chargingSpecial) {
+      const chargeLevel = this.specialChargeTime / CFG.bombMaxCharge;
       const blastR = CFG.bombMinRadius + (CFG.bombMaxRadius - CFG.bombMinRadius) * chargeLevel;
 
       // Charge arc around player body (fills as charge builds)
@@ -1560,6 +1752,7 @@ const p1 = new Player(
     up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD',
     aimMode: 'mouse',
     weaponType: 'sniper',
+    specialWeapon: 'laser',
     shootKey: 'AltLeft',
     dashKey: 'ShiftLeft',
     bodySize: 11,    // Smaller circle — tall & thin sniper
@@ -1574,6 +1767,7 @@ const p2 = new Player(
     up: 'KeyI', down: 'KeyK', left: 'KeyJ', right: 'KeyL',
     aimMode: 'keys',
     weaponType: 'shotgun',
+    specialWeapon: 'blastwave',
     aimUp: 'ArrowUp', aimDown: 'ArrowDown', aimLeft: 'ArrowLeft', aimRight: 'ArrowRight',
     shootKey: 'AltRight',
     dashKey: 'ShiftRight',
@@ -1668,8 +1862,8 @@ function respawnDead() {
       p.vx = 0;
       p.vy = 0;
       p.iFrames = 1.0;
-      p.bombCharging = false;
-      p.bombChargeTime = 0;
+      p.chargingSpecial = false;
+      p.specialChargeTime = 0;
       spawnParticles(p.x, p.y, p.color, 15, 200, 0.4, 3);
     }
   }
@@ -1750,8 +1944,8 @@ function buildDebugPanel() {
       { key: 'shotgunRecoil', min: 0, max: 200, step: 5, label: 'Recoil' },
       { key: 'shotgunSpeedJitter', min: 0, max: 0.5, step: 0.05, label: 'Speed Jitter' },
     ],
-    'Bomb': [
-      { key: 'doublePressWindow', min: 0.1, max: 0.6, step: 0.05, label: 'Dbl-Press Window' },
+    'Special Weapon': [
+      { key: 'specialChargeThreshold', min: 0.1, max: 0.8, step: 0.05, label: 'Hold Threshold' },
       { key: 'bombMaxCharge', min: 0.5, max: 3, step: 0.1, label: 'Max Charge' },
       { key: 'bombMinRadius', min: 20, max: 100, step: 5, label: 'Min Radius' },
       { key: 'bombMaxRadius', min: 80, max: 300, step: 10, label: 'Max Radius' },
@@ -1772,6 +1966,19 @@ function buildDebugPanel() {
       { key: 'cameraMinZoom', min: 0.15, max: 0.8, step: 0.05, label: 'Min Zoom' },
       { key: 'cameraMaxZoom', min: 0.5, max: 2, step: 0.05, label: 'Max Zoom' },
       { key: 'cameraZoomPadding', min: 50, max: 800, step: 25, label: 'Zoom Pad' },
+    ],
+    'Juice': [
+      { key: 'hitstopDuration', min: 0, max: 0.15, step: 0.01, label: 'Hitstop' },
+      { key: 'hitstopHeavy', min: 0, max: 0.2, step: 0.01, label: 'Hitstop Heavy' },
+      { key: 'cameraPunchSniper', min: 0, max: 15, step: 1, label: 'Punch Sniper' },
+      { key: 'cameraPunchShotgun', min: 0, max: 25, step: 1, label: 'Punch Shotgun' },
+      { key: 'cameraPunchDecay', min: 5, max: 30, step: 1, label: 'Punch Decay' },
+      { key: 'damageFlashAlpha', min: 0, max: 0.8, step: 0.05, label: 'Dmg Flash' },
+      { key: 'damageFlashDuration', min: 0.05, max: 0.8, step: 0.05, label: 'Flash Dur' },
+      { key: 'decalLifetime', min: 1, max: 20, step: 1, label: 'Decal Life' },
+      { key: 'decalMaxCount', min: 10, max: 200, step: 10, label: 'Max Decals' },
+      { key: 'deathSlowmo', min: 0.05, max: 1, step: 0.05, label: 'Death Slowmo' },
+      { key: 'deathSlowmoDuration', min: 0.05, max: 0.5, step: 0.05, label: 'Slowmo Dur' },
     ],
   };
 
@@ -1811,11 +2018,30 @@ generateObstacles();
 // GAME LOOP
 // ============================================================
 let lastTime = performance.now();
+let hitstopTimer = 0;
+let deathSlowmoTimer = 0;
+let damageFlashTimer = 0;
+let damageFlashColor = '#ffffff';
+let deathFlashTimer = 0;
 
 function gameLoop(now) {
   const rawDt = (now - lastTime) / 1000;
-  const dt = Math.min(rawDt, 0.05); // Cap delta to avoid spiral
+  let dt = Math.min(rawDt, 0.05); // Cap delta to avoid spiral
   lastTime = now;
+
+  // Hitstop — freeze game updates but keep rendering
+  if (hitstopTimer > 0) {
+    hitstopTimer -= rawDt;
+    dt = 0;
+  } else if (deathSlowmoTimer > 0) {
+    // Death slowmo — reduce game speed
+    deathSlowmoTimer -= rawDt;
+    dt *= CFG.deathSlowmo;
+  }
+
+  // Flash timers tick in real time
+  damageFlashTimer = Math.max(0, damageFlashTimer - rawDt);
+  deathFlashTimer = Math.max(0, deathFlashTimer - rawDt);
 
   // Update
   for (const p of players) p.update(dt);
@@ -1824,6 +2050,10 @@ function gameLoop(now) {
   updateBombExplosions(dt);
   updateParticles(dt);
   updateGhosts(dt);
+  updateSparks(dt);
+  updateMuzzleFlashes(dt);
+  updateDecals(dt);
+  updateDeathFragments(dt);
   camera.update(dt, players);
 
   // Render
@@ -1833,16 +2063,43 @@ function gameLoop(now) {
   camera.applyTransform();
 
   drawArena();
+  drawDecals();
   drawObstacles();
   drawGhosts();
+  drawDeathFragments();
   drawBombExplosions();
   for (const p of players) p.drawLOS();
   drawBullets();
   drawBombProjectiles();
+  drawMuzzleFlashes();
   drawParticles();
+  drawSparks();
   for (const p of players) p.draw();
 
   camera.restoreTransform();
+
+  // Screen-space effects (damage vignette, death flash)
+  if (damageFlashTimer > 0) {
+    const t = damageFlashTimer / CFG.damageFlashDuration;
+    const alpha = t * CFG.damageFlashAlpha;
+    const grad = ctx.createRadialGradient(
+      canvas.width / 2, canvas.height / 2, canvas.width * 0.15,
+      canvas.width / 2, canvas.height / 2, canvas.width * 0.6
+    );
+    grad.addColorStop(0, 'transparent');
+    grad.addColorStop(1, damageFlashColor);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1;
+  }
+
+  if (deathFlashTimer > 0) {
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1;
+  }
 
   // HUD - player labels
   for (const [i, p] of players.entries()) {
