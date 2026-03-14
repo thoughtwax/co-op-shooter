@@ -343,7 +343,7 @@
 // ============================================================
 const CFG = {
   // Movement
-  acceleration: 8000,
+  acceleration: 10500,
   maxSpeed: 420,
   friction: 12,
 
@@ -354,12 +354,12 @@ const CFG = {
   dashGhostDuration: 0.3,
 
   // Shooting — Blue (sniper)
-  fireRate: 10,
-  bulletSpeed: 900,
-  bulletSize: 3,
-  bulletLifetime: 1.2,
-  bulletDamage: 10,
-  recoilStrength: 30,
+  fireRate: 12,
+  bulletSpeed: 1000,
+  bulletSize: 2,
+  bulletLifetime: 2.8,
+  bulletDamage: 5,
+  recoilStrength: 70,
 
   // Shooting — Red (shotgun)
   shotgunFireRate: 2.5,        // slower auto-fire
@@ -373,7 +373,7 @@ const CFG = {
   shotgunSpeedJitter: 0.3,     // speed randomness (0–1)
 
   // Visual
-  playerSize: 14,
+  playerSize: 12,
   losLineAlpha: 0.15,
   gridSize: 80,
   screenShakeDecay: 8,
@@ -401,6 +401,10 @@ const CFG = {
   // Arena
   arenaWidth: 5000,
   arenaHeight: 5000,
+
+  // Gamepad
+  gamepadDeadzone: 0.15,
+  gamepadAimDeadzone: 0.2,
 };
 
 // ============================================================
@@ -447,6 +451,42 @@ window.addEventListener('mousemove', e => {
 
 // Prevent context menu
 window.addEventListener('contextmenu', e => e.preventDefault());
+
+// ============================================================
+// GAMEPAD SYSTEM
+// ============================================================
+const prevGamepadButtons = [new Array(17).fill(false), new Array(17).fill(false)];
+
+function getGamepad(index) {
+  if (index == null || !navigator.getGamepads) return null;
+  const pads = navigator.getGamepads();
+  return pads[index] || null;
+}
+
+function applyDeadzone(value, deadzone) {
+  if (Math.abs(value) < deadzone) return 0;
+  const sign = Math.sign(value);
+  return sign * (Math.abs(value) - deadzone) / (1 - deadzone);
+}
+
+function gamepadButtonJustPressed(padIndex, buttonIndex) {
+  const pad = getGamepad(padIndex);
+  if (!pad) return false;
+  const current = pad.buttons[buttonIndex] && pad.buttons[buttonIndex].pressed;
+  const prev = prevGamepadButtons[padIndex][buttonIndex];
+  return current && !prev;
+}
+
+function updatePrevGamepadButtons() {
+  for (let i = 0; i < 2; i++) {
+    const pad = getGamepad(i);
+    if (pad) {
+      for (let b = 0; b < pad.buttons.length; b++) {
+        prevGamepadButtons[i][b] = pad.buttons[b].pressed;
+      }
+    }
+  }
+}
 
 // ============================================================
 // MATH HELPERS
@@ -1010,11 +1050,32 @@ class Player {
     this.bombChargeTime = 0;
     this.bombTargetX = 0;           // Blue's aimed target
     this.bombTargetY = 0;
+    this.gamepadIndex = null;
   }
 
   getInput() {
-    let mx = 0, my = 0;
     const c = this.controls;
+
+    // Gamepad left stick / D-pad
+    const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
+    if (gp) {
+      const sx = applyDeadzone(gp.axes[0], CFG.gamepadDeadzone);
+      const sy = applyDeadzone(gp.axes[1], CFG.gamepadDeadzone);
+      if (sx !== 0 || sy !== 0) {
+        const mag = Math.hypot(sx, sy);
+        return mag > 1 ? { x: sx / mag, y: sy / mag } : { x: sx, y: sy };
+      }
+      // D-pad fallback
+      let dx = 0, dy = 0;
+      if (gp.buttons[12] && gp.buttons[12].pressed) dy -= 1;
+      if (gp.buttons[13] && gp.buttons[13].pressed) dy += 1;
+      if (gp.buttons[14] && gp.buttons[14].pressed) dx -= 1;
+      if (gp.buttons[15] && gp.buttons[15].pressed) dx += 1;
+      if (dx !== 0 || dy !== 0) return normalize(dx, dy);
+    }
+
+    // Keyboard
+    let mx = 0, my = 0;
     if (keys[c.up]) my -= 1;
     if (keys[c.down]) my += 1;
     if (keys[c.left]) mx -= 1;
@@ -1024,6 +1085,22 @@ class Player {
 
   getAimDirection() {
     const c = this.controls;
+
+    // Gamepad right stick (takes priority over keyboard/mouse)
+    const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
+    if (gp) {
+      const rx = applyDeadzone(gp.axes[2], CFG.gamepadAimDeadzone);
+      const ry = applyDeadzone(gp.axes[3], CFG.gamepadAimDeadzone);
+      if (rx !== 0 || ry !== 0) {
+        const n = normalize(rx, ry);
+        this.aimDirX = n.x;
+        this.aimDirY = n.y;
+        this.lastAimDirX = this.aimDirX;
+        this.lastAimDirY = this.aimDirY;
+        this.aimAngle = Math.atan2(this.aimDirY, this.aimDirX);
+        return;
+      }
+    }
 
     if (c.aimMode === 'mouse') {
       const world = camera.screenToWorld(mouse.x, mouse.y);
@@ -1058,10 +1135,14 @@ class Player {
   }
 
   isShooting() {
+    const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
+    if (gp && gp.buttons[7] && gp.buttons[7].pressed) return true;
     return !!keys[this.controls.shootKey];
   }
 
   isDashing() {
+    const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
+    if (gp && gp.buttons[4] && gp.buttons[4].pressed) return true;
     return !!keys[this.controls.dashKey];
   }
 
@@ -1245,11 +1326,22 @@ class Player {
       // Charge the bomb
       this.bombChargeTime = Math.min(this.bombChargeTime + dt, CFG.bombMaxCharge);
 
-      // Update Blue's target position (tracks cursor while charging)
+      // Update Blue's target position (tracks cursor/stick while charging)
       if (this.controls.aimMode === 'mouse') {
-        const world = camera.screenToWorld(mouse.x, mouse.y);
-        this.bombTargetX = world.x;
-        this.bombTargetY = world.y;
+        const gp = this.gamepadIndex != null ? getGamepad(this.gamepadIndex) : null;
+        const hasStickAim = gp && Math.hypot(
+          applyDeadzone(gp.axes[2], CFG.gamepadAimDeadzone),
+          applyDeadzone(gp.axes[3], CFG.gamepadAimDeadzone)
+        ) > 0;
+        if (hasStickAim) {
+          // Gamepad: lob bomb in aim direction at fixed range
+          this.bombTargetX = this.x + this.aimDirX * 300;
+          this.bombTargetY = this.y + this.aimDirY * 300;
+        } else {
+          const world = camera.screenToWorld(mouse.x, mouse.y);
+          this.bombTargetX = world.x;
+          this.bombTargetY = world.y;
+        }
       } else {
         // Red — bomb emanates from self, no aiming needed
         this.bombTargetX = this.x;
@@ -1584,6 +1676,10 @@ const p2 = new Player(
 
 const players = [p1, p2];
 
+// Assign gamepads: pad 0 → P1, pad 1 → P2
+p1.gamepadIndex = 0;
+p2.gamepadIndex = 1;
+
 // ============================================================
 // SWAP CONTROLS
 // ============================================================
@@ -1817,6 +1913,12 @@ function gameLoop(now) {
   const dt = Math.min(rawDt, 0.05); // Cap delta to avoid spiral
   lastTime = now;
 
+  // Gamepad: swap (A button) and respawn (Start) — edge-triggered
+  for (let gi = 0; gi < 2; gi++) {
+    if (gamepadButtonJustPressed(gi, 0)) swapControls();
+    if (gamepadButtonJustPressed(gi, 9)) respawnDead();
+  }
+
   // Update
   for (const p of players) p.update(dt);
   updateBullets(dt);
@@ -1864,6 +1966,8 @@ function gameLoop(now) {
     ctx.textAlign = 'left';
     ctx.fillText(`${Math.round(1/rawDt)} fps`, 12, canvas.height - 12);
   }
+
+  updatePrevGamepadButtons();
 
   requestAnimationFrame(gameLoop);
 }
