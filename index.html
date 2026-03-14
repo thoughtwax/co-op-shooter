@@ -1150,23 +1150,20 @@ function drawBombExplosions() {
 }
 
 // ============================================================
-// OBSTACLES
+// OBSTACLES + LEVEL LOADING
 // ============================================================
 const obstacles = [];
+let levelData = null;   // All levels from levels.json
+let currentLevel = 0;   // Index of active level
 
-function generateObstacles() {
+// Fallback obstacles if levels.json is unavailable
+function generateFallbackObstacles() {
   obstacles.length = 0;
-  const aw = CFG.arenaWidth;
-  const ah = CFG.arenaHeight;
-
-  // Scatter rectangular obstacles
+  const aw = CFG.arenaWidth, ah = CFG.arenaHeight;
   const configs = [
-    // Near center — some cover
     { x: aw*0.45, y: ah*0.42, w: 120, h: 20 },
     { x: aw*0.52, y: ah*0.55, w: 20, h: 100 },
     { x: aw*0.38, y: ah*0.58, w: 80, h: 20 },
-
-    // Quadrant obstacles
     { x: aw*0.2, y: ah*0.2, w: 160, h: 20 },
     { x: aw*0.2, y: ah*0.2, w: 20, h: 120 },
     { x: aw*0.75, y: ah*0.25, w: 20, h: 160 },
@@ -1174,23 +1171,60 @@ function generateObstacles() {
     { x: aw*0.15, y: ah*0.75, w: 140, h: 20 },
     { x: aw*0.7, y: ah*0.7, w: 20, h: 140 },
     { x: aw*0.7, y: ah*0.82, w: 120, h: 20 },
-
-    // Scattered pillars
     { x: aw*0.3, y: ah*0.4, w: 24, h: 24 },
     { x: aw*0.6, y: ah*0.35, w: 24, h: 24 },
     { x: aw*0.5, y: ah*0.7, w: 24, h: 24 },
     { x: aw*0.35, y: ah*0.65, w: 24, h: 24 },
     { x: aw*0.65, y: ah*0.5, w: 24, h: 24 },
-
-    // Outer structures
     { x: aw*0.08, y: ah*0.45, w: 20, h: 200 },
     { x: aw*0.9, y: ah*0.4, w: 20, h: 180 },
     { x: aw*0.4, y: ah*0.08, w: 200, h: 20 },
     { x: aw*0.45, y: ah*0.9, w: 180, h: 20 },
   ];
+  for (const c of configs) obstacles.push({ x: c.x, y: c.y, w: c.w, h: c.h });
+}
 
-  for (const c of configs) {
-    obstacles.push({ x: c.x, y: c.y, w: c.w, h: c.h });
+function loadLevel(index) {
+  if (!levelData || !levelData.levels || index >= levelData.levels.length) {
+    generateFallbackObstacles();
+    return;
+  }
+  const lv = levelData.levels[index];
+  currentLevel = index;
+
+  // Apply arena dimensions
+  CFG.arenaWidth = lv.arenaWidth || 5000;
+  CFG.arenaHeight = lv.arenaHeight || 5000;
+
+  // Load obstacles
+  obstacles.length = 0;
+  if (lv.obstacles) {
+    for (const o of lv.obstacles) obstacles.push({ x: o.x, y: o.y, w: o.w, h: o.h });
+  }
+
+  // Position players at spawns
+  if (lv.spawns) {
+    if (lv.spawns.p1) { p1.x = lv.spawns.p1.x; p1.y = lv.spawns.p1.y; }
+    if (lv.spawns.p2) { p2.x = lv.spawns.p2.x; p2.y = lv.spawns.p2.y; }
+  }
+  p1.vx = 0; p1.vy = 0; p1.hp = 100; p1.alive = true;
+  p2.vx = 0; p2.vy = 0; p2.hp = 100; p2.alive = true;
+  p1.iFrames = 1.0; p2.iFrames = 1.0;
+
+  // Reset camera to midpoint
+  camera.x = (p1.x + p2.x) / 2;
+  camera.y = (p1.y + p2.y) / 2;
+}
+
+async function fetchLevels() {
+  try {
+    const resp = await fetch('levels.json');
+    if (!resp.ok) throw new Error(resp.status);
+    levelData = await resp.json();
+    loadLevel(0);
+  } catch (e) {
+    console.warn('Could not load levels.json, using fallback obstacles.', e.message);
+    generateFallbackObstacles();
   }
 }
 
@@ -1996,8 +2030,16 @@ function respawnDead() {
     if (!p.alive) {
       p.alive = true;
       p.hp = 100;
-      p.x = CFG.arenaWidth / 2 + (p === p1 ? -100 : 100);
-      p.y = CFG.arenaHeight / 2;
+      // Use level spawn points if available, otherwise center of arena
+      const lv = levelData && levelData.levels && levelData.levels[currentLevel];
+      const spawnKey = p === p1 ? 'p1' : 'p2';
+      if (lv && lv.spawns && lv.spawns[spawnKey]) {
+        p.x = lv.spawns[spawnKey].x;
+        p.y = lv.spawns[spawnKey].y;
+      } else {
+        p.x = CFG.arenaWidth / 2 + (p === p1 ? -100 : 100);
+        p.y = CFG.arenaHeight / 2;
+      }
       p.vx = 0;
       p.vy = 0;
       p.iFrames = 1.0;
@@ -2151,7 +2193,7 @@ function buildDebugPanel() {
 }
 
 buildDebugPanel();
-generateObstacles();
+fetchLevels();
 
 // ============================================================
 // GAME LOOP
